@@ -42,7 +42,7 @@ import dock_core
 import icons
 from i18n import _
 import corners
-from launcher_core import icon_bytes, launch_action, launch_app, parse_desktop_files, read_bounded_output, saved_corners
+from launcher_core import icon_bytes, icon_file_for, launch_action, launch_app, parse_desktop_files, read_bounded_output, saved_corners
 from palette import ThemePalette
 
 PLUGIN_DIR = Path(__file__).resolve().parent
@@ -106,6 +106,13 @@ def icon_image(app, size):
             image.set_pixel_size(size)
             return image
         name = path.stem
+    display = Gdk.Display.get_default()
+    if display is not None and not Gtk.IconTheme.get_for_display(display).has_icon(name):
+        found = icon_file_for(name)  # Missing from a stale icon-theme.cache.
+        if found is not None and str(found) != app.get("icon"):  # Once: no loop on a bad file.
+            return icon_image({"icon": str(found)}, size)
+        if found is None:
+            name = "application-x-executable"  # Not the theme's red "missing" sign.
     image = Gtk.Image.new_from_icon_name(name)
     image.set_pixel_size(size)
     return image
@@ -280,6 +287,10 @@ class Dock(Gtk.Application):
         clicks = Gtk.GestureClick()
         clicks.connect("pressed", self.on_panel_click)
         self.panel.add_controller(clicks)
+        # Right-click the background (or App Manager's icon): the dock's own quick settings.
+        right = Gtk.GestureClick(button=Gdk.BUTTON_SECONDARY)
+        right.connect("pressed", self.on_panel_right_click)
+        self.panel.add_controller(right)
         self.add_external_drop()
         self.revealer.set_child(self.panel)
         self.strip = Gtk.Box()
@@ -479,6 +490,10 @@ class Dock(Gtk.Application):
         button.dock-menu-item:hover {{ background: alpha({c['accent']}, 0.35); }}
         button.dock-menu-item label {{ font-size: 13px; font-weight: 500; color: #ffffff; }}
         button.dock-menu-item.destructive label {{ color: #ff9999; }}
+        button.dock-menu-item.dock-menu-current {{ background: alpha({c['accent']}, 0.22); }}
+        button.dock-menu-item.dock-menu-current label {{ font-weight: 700; }}
+        separator.dock-menu-separator {{ background: alpha(#ffffff, 0.18); min-height: 1px; margin: 3px 4px; }}
+        popover.dock-menu switch {{ transform: scale(0.8); }}
         .dock-menu-title {{ font-size: 11px; font-weight: 700; padding: 2px 8px 4px 8px; color: alpha(#ffffff, 0.7); }}
         """
         self.css.load_from_string(css)
@@ -499,6 +514,17 @@ class Dock(Gtk.Application):
             dock_core.set_setting("dock_transparent", not self.settings["dock_transparent"])
         except OSError as error:
             print("dock: could not save:", error, file=sys.stderr)
+
+    def on_panel_right_click(self, gesture, _count, x, y):
+        widget = self.panel.pick(x, y, Gtk.PickFlags.DEFAULT)
+        if widget is self.spacer:
+            return
+        while widget is not None and widget is not self.panel:
+            if widget.has_css_class("dock-app"):
+                return  # An app's icon has its own menu.
+            widget = widget.get_parent()
+        gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+        self.show_settings_menu(x, y)
 
     # --- auto-hide ----------------------------------------------------------------
 
@@ -686,6 +712,7 @@ class Dock(Gtk.Application):
     def make_item(self, app, windows, is_pinned, active):
         button = Gtk.Button()
         button.add_css_class("dock-item")
+        button.add_css_class("dock-app")
         slot = Gtk.Overlay()
         slot.add_css_class("dock-icon")  # Grows on hover, bounces on alerts.
         image = icon_image(app, self.settings["dock_icon_size"])
@@ -746,16 +773,18 @@ class Dock(Gtk.Application):
 
     # --- menu --------------------------------------------------------------------------
 
-    def show_menu(self, button, app, windows, is_pinned):
+    def new_menu(self, parent, title_text):
+        """An empty dock menu on parent, opening away from the screen edge:
+        (popover, its box, item(label, callback, destructive=False))."""
         if self.menu is not None:
             self.menu.popdown()
         popover = Gtk.Popover()
         popover.add_css_class("dock-menu")
-        popover.set_parent(button)
+        popover.set_parent(parent)
         popover.set_position({"bottom": Gtk.PositionType.TOP, "top": Gtk.PositionType.BOTTOM,
                               "left": Gtk.PositionType.RIGHT, "right": Gtk.PositionType.LEFT}[self.edge])
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        title = Gtk.Label(label=app["name"], xalign=0)
+        title = Gtk.Label(label=title_text, xalign=0)
         title.add_css_class("dock-menu-title")
         box.append(title)
 
@@ -767,6 +796,56 @@ class Dock(Gtk.Application):
                 entry.add_css_class("destructive")
             entry.connect("clicked", lambda *_a: (popover.popdown(), callback()))
             box.append(entry)
+            return entry
+        return popover, box, item
+
+    def open_menu(self, popover, box):
+        popover.set_child(box)
+        popover.connect("closed", self.on_menu_closed)
+        self.menu = popover
+        popover.popup()
+
+    def show_settings_menu(self, x, y):
+        """Right-click on the dock: its edge (all but the bar's) and auto-hide."""
+        popover, box, item = self.new_menu(self.panel, _("Dock"))
+        rect = Gdk.Rectangle()
+        rect.x, rect.y, rect.width, rect.height = int(x), int(y), 1, 1
+        popover.set_pointing_to(rect)
+
+        def save(key, value):
+            try:
+                dock_core.set_setting(key, value)
+            except OSError as error:
+                print("dock: could not save:", error, file=sys.stderr)
+
+        def separator():
+            line = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+            line.add_css_class("dock-menu-separator")
+            box.append(line)
+
+        separator()
+        names = {"bottom": _("Bottom"), "top": _("Top"), "left": _("Left"), "right": _("Right")}
+        bar = dock_core.bar_position()
+        for position in dock_core.POSITIONS:
+            if position == bar:
+                continue
+            entry = item(names[position], lambda p=position: save("dock_position", p))
+            if position == self.edge:
+                entry.add_css_class("dock-menu-current")
+        separator()
+        autohide = self.settings["dock_autohide"]
+        entry = item("", lambda: save("dock_autohide", not autohide))
+        row = Gtk.Box(spacing=12)
+        label = Gtk.Label(label=_("Auto-hide"), xalign=0, hexpand=True)
+        toggle = Gtk.Switch(active=autohide, valign=Gtk.Align.CENTER)
+        toggle.set_can_target(False)  # The whole row toggles.
+        row.append(label)
+        row.append(toggle)
+        entry.set_child(row)
+        self.open_menu(popover, box)
+
+    def show_menu(self, button, app, windows, is_pinned):
+        popover, box, item = self.new_menu(button, app["name"])
 
         # Browsers bring their own "New Window" action: no second one then.
         if not (windows and dock_core.has_new_window_action(app)):
@@ -781,10 +860,7 @@ class Dock(Gtk.Application):
             item(_("Close") if len(windows) == 1 else _("Close all windows"),
                  lambda: [hyprctl_dispatch("hl.dsp.window.close(" + window_arg(w) + ")") for w in windows],
                  destructive=True)
-        popover.set_child(box)
-        popover.connect("closed", self.on_menu_closed)
-        self.menu = popover
-        popover.popup()
+        self.open_menu(popover, box)
 
     def on_menu_closed(self, popover):
         def cleanup():

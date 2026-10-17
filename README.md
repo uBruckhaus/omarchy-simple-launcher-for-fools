@@ -30,6 +30,18 @@ Open an app's menu (`☰`, `→`) → **Shortcut…**, or press `Ctrl+K`.
 - **All shortcuts of an app in one place**: launcher-made ones, your own `bindings.lua` binds and Omarchy defaults (including your default terminal, browser and editor, e.g. `Super + Enter` → Foot). Change, remove or turn off any of them; a `+1` badge in the list shows apps with more than one.
 - **No duplicates, no edits to your files**: a key that already opens the same thing is never added twice. Everything lives in a generated `~/.config/hypr/simple-launcher-shortcuts.lua`, validated with `hyprctl configerrors` and rolled back if Hyprland rejects it.
 
+## Changes in 2.2.0
+
+**Open in floating window.** Every app's menu has **Open in floating window**: its first window opens floating (movable and resizable) even on a tiled workspace. App Manager asks Hyprland to start it with the float rule (`hyprctl eval 'hl.exec_cmd(…, {float = true})'`); the command is the same `uwsm-app -- <app>.desktop` as a normal start, shell-quoted and passed to Lua with every byte escaped, so nothing in a file name can reach the code around it.
+
+**Look.** Settings → **Look**: *Omarchy theme* (the default, as before) or *GNOME (Adwaita)* for libadwaita's own widgets and colours. App Manager restarts itself to switch.
+
+**Filter field.** Settings → **Filter field** (on by default), or the × next to the wide view's filter field, hides the field. Typing still filters; the title then shows what you typed. *Reset to defaults* brings it back.
+
+**Legend.** The ⓘ in the header explains every mark in the list: running dots, update dot, ★ for new apps, the eye for hidden ones, plugins not in the bar, shortcut chips and +N.
+
+**No more red "missing" icons.** Icons that a stale icon-theme cache does not list are found in `hicolor` and `pixmaps` directly; apps without any icon get the generic application icon in the popup and the dock.
+
 ## Changes in 2.1.0
 
 **Folders fill the popup.** Resize the wide popup and the group folders grow or shrink with it: App Manager picks the number of folders per row that gives the largest icons (36–96 px), spreads the icon rows over the height, and fits again when you add or delete a group. With more groups than fit at the smallest size, the page scrolls as before.
