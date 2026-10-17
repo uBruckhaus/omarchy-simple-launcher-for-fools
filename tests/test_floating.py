@@ -35,6 +35,33 @@ class LuaStringTests(unittest.TestCase):
         self.assertFalse(desktop_generic.exec_floating(["true"]))
 
 
+class WorkspaceTests(unittest.TestCase):
+    def test_exec_on_workspace_takes_only_a_workspace_number(self):
+        with mock.patch("subprocess.run") as run:
+            run.return_value = mock.Mock(returncode=0, stdout="ok\n")
+            self.assertTrue(desktop_omarchy.exec_on_workspace(["uwsm-app", "--", "foot.desktop"], 3))
+            self.assertTrue(run.call_args.args[0][2].endswith(", {workspace = 3})"))
+            for bad in (0, 101, -1, True, "3", "3}) os.execute('x') --", 2.5, None):
+                self.assertFalse(desktop_omarchy.exec_on_workspace(["true"], bad))
+            self.assertEqual(run.call_count, 1)
+
+    def test_workspaces_in_use_and_the_first_free_one(self):
+        answers = {"workspaces": '[{"id": 1}, {"id": 3}, {"id": -98, "name": "special:x"}, {"id": "2"}]',
+                   "clients": '[{"workspace": {"id": 1}, "class": "firefox"}, {"workspace": {"id": 1}, '
+                              '"class": "firefox"}, {"workspace": {"id": 3}, "class": "foot"}]'}
+
+        def fake(argv, **_kwargs):
+            return mock.Mock(returncode=0, stdout=answers[argv[1]])
+        with mock.patch("subprocess.run", side_effect=fake):
+            used, free = desktop_omarchy.workspaces()
+        self.assertEqual(used, [(1, ["firefox"]), (3, ["foot"])])
+        self.assertEqual(free, 2)
+
+    def test_generic_desktop_has_no_workspaces(self):
+        self.assertIsNone(desktop_generic.workspaces())
+        self.assertFalse(desktop_generic.exec_on_workspace(["true"], 1))
+
+
 class FloatingArgvTests(unittest.TestCase):
     def test_appimage_runs_directly(self):
         self.assertEqual(launcher_core.floating_argv({"argv": ["/x/a.AppImage"]}), ["/x/a.AppImage"])

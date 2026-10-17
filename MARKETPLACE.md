@@ -30,7 +30,7 @@ This document contains the ready-to-use copy, metadata, and feature breakdown fo
 
 Whether summoned with a click on the status bar or via a global Hyprland keybinding, the launcher appears instantly above all tiled and floating windows. Start typing immediately to filter your tools, jump straight to running applications, or manage distracting helper utilities with built-in app concealment.
 
-**New in 2.2 — Open in floating window, a Look setting (Omarchy theme or GNOME Adwaita), an optional filter field, an ⓘ legend for every mark, and no more red "missing" icons.**
+**New in 2.2 — Open in floating window or on a chosen workspace, a Look setting (Omarchy theme or GNOME Adwaita), an optional filter field, an ⓘ legend for every mark, and no more red "missing" icons.**
 
 **New in 2.1 — folders that fill the popup, a Corners setting (like windows, rounded or square), a ★ on new groups and a much better icon search across three collections.**
 

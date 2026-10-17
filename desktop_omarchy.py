@@ -86,12 +86,49 @@ def lua_string(text: str) -> str:
     return '"' + "".join(f"\\{byte:03d}" for byte in text.encode()) + '"'
 
 
+MAX_WORKSPACE = 100     # Hyprland's normal workspaces offered by "Open on workspace"
+
+
 def exec_floating(argv) -> bool:
     """Start argv through Hyprland with the float rule: its first window
     opens floating, whatever the window rules say (Hyprland's exec runs it
     in a shell, so the words are quoted)."""
+    return _exec_with_rule(argv, "float = true")
+
+
+def exec_on_workspace(argv, workspace) -> bool:
+    """Start argv through Hyprland with the workspace rule: its first window
+    opens on that workspace (1 … MAX_WORKSPACE), which then shows."""
+    if isinstance(workspace, bool) or not isinstance(workspace, int) or not 1 <= workspace <= MAX_WORKSPACE:
+        return False
+    return _exec_with_rule(argv, f"workspace = {workspace}")
+
+
+def workspaces():
+    """([(id, [window classes])] of the normal workspaces in use, the first free id),
+    or None when Hyprland does not answer."""
+    try:
+        result = subprocess.run(["hyprctl", "workspaces", "-j"], capture_output=True, text=True, timeout=2)
+        data = json.loads(result.stdout) if result.returncode == 0 else None
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        data = None
+    if not isinstance(data, list):
+        return None
+    ids = sorted({w["id"] for w in data if isinstance(w, dict) and type(w.get("id")) is int
+                  and 1 <= w["id"] <= MAX_WORKSPACE})
+    apps = {}
+    for client in clients() or []:
+        ws = client.get("workspace", {}).get("id") if isinstance(client, dict) else None
+        name = str(client.get("class") or client.get("title") or "")[:40] if ws in ids else ""
+        if name and name not in apps.setdefault(ws, []):
+            apps[ws].append(name)
+    free = next((n for n in range(1, MAX_WORKSPACE + 1) if n not in ids), None)
+    return [(i, apps.get(i, [])) for i in ids], free
+
+
+def _exec_with_rule(argv, rule: str) -> bool:
     import shlex
-    code = f"hl.exec_cmd({lua_string(shlex.join(argv))}, {{float = true}})"
+    code = f"hl.exec_cmd({lua_string(shlex.join(argv))}, {{{rule}}})"
     try:
         result = subprocess.run(["hyprctl", "eval", code], capture_output=True, text=True, timeout=2)
     except (OSError, subprocess.TimeoutExpired):

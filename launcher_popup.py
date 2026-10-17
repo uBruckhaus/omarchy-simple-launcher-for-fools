@@ -62,7 +62,7 @@ from launcher_core import (
     admin_action_enabled, admin_command, running_first_enabled, set_running_first, saved_view, set_view,
     saved_wide_layout, set_wide_layout, saved_look, set_look, view_buttons_shown, set_view_buttons_shown, filter_field_shown, set_filter_field_shown, saved_corners, set_corners, read_bounded_output,
     saved_size, set_saved_size, saved_position, set_saved_position,
-    plugin_manifests, set_admin_action, forget_saved_admin_action, clipboard_text, launch_action, launch_app, launch_as_admin, launch_floating, floating_argv, load_hidden_apps, open_plugin, parse_desktop_files, parse_plugins,
+    plugin_manifests, set_admin_action, forget_saved_admin_action, clipboard_text, launch_action, launch_app, launch_as_admin, launch_floating, launch_on_workspace, floating_argv, load_hidden_apps, open_plugin, parse_desktop_files, parse_plugins,
     plugin_removal_note, save_hidden_apps, set_in_bar, BAR_SECTIONS, USER_PLUGINS_DIR,
     icon_bytes, icon_file_for,
 )
@@ -3717,6 +3717,9 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
                 if "plugin_id" not in app and desktop.can_float() and floating_argv(app) is not None:
                     add_action(_("Open in floating window"), lambda: self.launch_floating(app),
                                "window-restore-symbolic")
+                if "plugin_id" not in app and floating_argv(app) is not None and desktop.workspaces() is not None:
+                    add_action(_("Open on workspace"), lambda: self.fill_workspace_choice(popover, app),
+                               "view-grid-symbolic", keep_open=True, end_icon="go-next-symbolic")
                 if admin_action_enabled() and admin_command(app):
                     add_action(_("Open as administrator"), lambda: self.open_as_admin(app),
                                "dialog-password-symbolic")
@@ -4146,6 +4149,68 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
                    for section in BAR_SECTIONS}
         popover.set_child(box)
         buttons[default or "left"].grab_focus()
+
+    def fill_workspace_choice(self, popover, app):
+        """Second level of Open on workspace: the workspaces in use (with their apps) and the next free one."""
+        found = desktop.workspaces()
+        if found is None:
+            self.fill_actions(popover, app)
+            return
+        used, free = found
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        for side in ("start", "end", "top", "bottom"):
+            getattr(box, f"set_margin_{side}")(4)
+
+        def item(label, icon, callback, note=None):
+            button = Gtk.Button()
+            button.add_css_class("flat")
+            button.add_css_class("launcher-menu-item")
+            self.focus_follows_pointer(button)
+            line = Gtk.Box(spacing=8)
+            for side in ("start", "end"):
+                getattr(line, f"set_margin_{side}")(8)
+            line.set_margin_top(6)
+            line.set_margin_bottom(6)
+            image = Gtk.Image.new_from_icon_name(icon)
+            image.set_pixel_size(14)
+            line.append(image)
+            text = Gtk.Label(label=label, xalign=0)
+            text.set_hexpand(True)
+            text.set_ellipsize(3)  # Pango END: long app lists end in …
+            text.set_max_width_chars(40)
+            line.append(text)
+            if note:
+                tag = Gtk.Label(label=note)
+                tag.add_css_class("launcher-shortcut-chip")
+                line.append(tag)
+            button.set_child(line)
+            button.connect("clicked", lambda *_: callback())
+            box.append(button)
+            return button
+
+        back = item(_("Back"), "go-previous-symbolic", lambda: self.fill_actions(popover, app))
+        title = Gtk.Label(label=_("Open {0} on workspace").format(app['name']), xalign=0)
+        title.add_css_class("sc-section")
+        title.set_margin_start(8)
+        box.append(title)
+        entries = []
+        for number, names in used:
+            shown = ", ".join(names[:3]) + (" …" if len(names) > 3 else "")
+            entries.append(item(" · ".join(filter(None, (_("Workspace {0}").format(number), shown))),
+                                "view-grid-symbolic",
+                                lambda n=number: (popover.popdown(), self.launch_on_workspace(app, n))))
+        if free is not None:
+            entries.append(item(_("Workspace {0}").format(free), "list-add-symbolic",
+                                lambda: (popover.popdown(), self.launch_on_workspace(app, free)), _("empty")))
+        popover.set_child(box)
+        (entries[0] if entries else back).grab_focus()
+
+    def launch_on_workspace(self, app, workspace):
+        if app.get("desktop_id") and newapps.opened(self.seen, app["desktop_id"]):
+            self.save_seen()
+        self.hide()
+        if not launch_on_workspace(app, workspace):
+            self.notify(_("Could not open {0}").format(app['name']))
 
     def set_bar_placement(self, plugin, placed, section=None):
         """Put a bar widget into a bar section or take it out (omarchy plugin

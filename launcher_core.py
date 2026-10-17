@@ -1341,6 +1341,13 @@ def launch_floating(app, action_id=None):
     return argv is not None and desktop.can_float() and desktop.exec_floating(argv)
 
 
+def launch_on_workspace(app, workspace):
+    """Open app with its window on that workspace."""
+    import desktop
+    argv = floating_argv(app)
+    return argv is not None and desktop.exec_on_workspace(argv, workspace)
+
+
 def launch_action(app, action_id):
     desktop_path = app.get("desktop_path", "")
     if desktop_path and shutil.which("uwsm-app"):

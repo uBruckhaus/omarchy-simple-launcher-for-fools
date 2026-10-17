@@ -42,6 +42,14 @@ def exec_floating(argv) -> bool:
     return False
 
 
+def workspaces():
+    return None  # No workspaces App Manager can name or open apps on.
+
+
+def exec_on_workspace(argv, workspace) -> bool:
+    return False
+
+
 def app_id() -> str:
     return APP_ID
 

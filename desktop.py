@@ -24,6 +24,8 @@ The interface (each implementation provides all of it):
     close_window(client)          close one of them
     can_float() -> bool           windows tile, so "Open in floating window" is offered
     exec_floating(argv) -> bool   start argv with its window floating
+    workspaces() -> tuple | None  ([(id, [window classes])], first free id) for "Open on workspace", None: not offered
+    exec_on_workspace(argv, n) -> bool  start argv with its window on workspace n
     has_plugins() -> bool         shell plugins and tray icons (the Plugins page)
     has_dock() -> bool            App Manager's own dock
     has_shortcuts() -> bool       global shortcuts in the compositor's key binds

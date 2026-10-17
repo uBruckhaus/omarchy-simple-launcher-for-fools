@@ -34,6 +34,8 @@ Open an app's menu (`☰`, `→`) → **Shortcut…**, or press `Ctrl+K`.
 
 **Open in floating window.** Every app's menu has **Open in floating window**: its first window opens floating (movable and resizable) even on a tiled workspace. App Manager asks Hyprland to start it with the float rule (`hyprctl eval 'hl.exec_cmd(…, {float = true})'`); the command is the same `uwsm-app -- <app>.desktop` as a normal start, shell-quoted and passed to Lua with every byte escaped, so nothing in a file name can reach the code around it.
 
+**Open on workspace.** Every app's menu has **Open on workspace ›**: pick one of the workspaces in use (each shows the apps on it) or the next empty one, and the app's first window opens there; that workspace then shows. Same start as above, with Hyprland's workspace rule (`{workspace = N}`, N a number from 1 to 100) instead of the float rule.
+
 **Look.** Settings → **Look**: *Omarchy theme* (the default, as before) or *GNOME (Adwaita)* for libadwaita's own widgets and colours. App Manager restarts itself to switch.
 
 **Filter field.** Settings → **Filter field** (on by default), or the × next to the wide view's filter field, hides the field. Typing still filters; the title then shows what you typed. *Reset to defaults* brings it back.
