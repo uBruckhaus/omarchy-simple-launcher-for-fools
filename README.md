@@ -213,6 +213,8 @@ Open the settings page with the **gear (⚙)** at the top right of the popup; **
 
 **Reset to defaults** in each card sets its options back. They are stored in `~/.config/applauncher/settings.json` (mode `0600`, written atomically through an exclusive temp file), next to the default shortcut modifiers.
 
+The **ⓘ** button beside the gear opens an **Information** page with a card for each of the author's other plugins in the Omarchy Plugin Marketplace, with a short description in the panel's language. A click on a card opens that plugin's marketplace page in the browser (a fixed `https://plugins.omarchy.org/plugin.html?id=…` address); nothing is downloaded. **← Back**, Backspace or Esc returns. It is part of the Omarchy look only. The marks legend button is now a question mark, so it is not mistaken for **ⓘ**.
+
 ## Open as administrator (optional)
 
 Off by default. When you switch it on in the settings page, an app's actions menu gets **Open as administrator**. Switching it on asks for your password first (polkit, through `pkexec /usr/bin/true`, which does nothing else), and it holds only for the current login: the switch is a marker file in your private session folder (`$XDG_RUNTIME_DIR`) that names the login session which switched it on (boot, session number and start time from systemd-logind). Any other session — after logging out and in again, or after a reboot — reads it as off. Switching it off needs no password. Nothing runs as root unless you choose that entry for one app and then enter your password again.

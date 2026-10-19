@@ -71,6 +71,7 @@ import i18n
 from i18n import _, N_, ngettext
 import details
 import groups
+import more_plugins
 from layer_watch import LayerWatch
 import pidfile
 import shortcuts
@@ -646,7 +647,7 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         self.mouse_hint = mouse_hint
         # What the dots, stars and badges on the icons mean, in a popover
         # drawn with the same marks.
-        legend_button = Gtk.MenuButton(icon_name="help-about-symbolic")
+        legend_button = Gtk.MenuButton(icon_name="dialog-question-symbolic")
         legend_button.add_css_class("flat")
         legend_button.add_css_class("launcher-header-btn")
         legend_button.set_tooltip_text(_("What the marks mean"))
@@ -702,8 +703,23 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         settings_button.add_css_class("launcher-header-btn")
         settings_button.add_css_class("launcher-gear-btn")
         settings_button.connect("clicked", lambda *_: self.open_settings_page())
+        # Information: the author's other Omarchy plugins, left of the gear.
+        # Not in the GNOME look, which has no marketplace.
+        info_button = None
+        if not ADWAITA:
+            info_button = Gtk.Button()
+            info_glyph = Gtk.Label(label=more_plugins.INFO_GLYPH)
+            info_glyph.add_css_class("launcher-gear")
+            info_button.set_child(info_glyph)
+            info_button.set_tooltip_text(_("Information"))
+            info_button.add_css_class("flat")
+            info_button.add_css_class("launcher-header-btn")
+            info_button.add_css_class("launcher-gear-btn")
+            info_button.connect("clicked", lambda *_: self.open_info_page())
+            header.append(info_button)
         header.append(settings_button)
         self.settings_button = settings_button
+        self.info_button = info_button
         header_bar = Gtk.Box()
         header_bar.append(title_side)
         header_bar.append(mouse_hint)
@@ -956,6 +972,8 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         self.build_group_name_page()
         self.build_details_page()
         self.build_icon_page()
+        if not ADWAITA:
+            self.build_info_page()
         self.apply_theme()
         if POPUP:
             self.resize_to(*self.saved_card_size())
@@ -2618,6 +2636,7 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         .launcher-headerbar-content button.launcher-toggle-active {{ background: alpha({accent}, 0.35); }}
         .launcher-headerbar-content .launcher-view-switch button.launcher-header-btn {{ border-radius: 0; }}
         """
+        css += more_plugins.css("launcher", fg_hex, dim_hex, colors["accent"], min(radius, 8))
         provider = Gtk.CssProvider()
         provider.load_from_data(css.encode())
         Gtk.StyleContext.add_provider_for_display(
@@ -2898,7 +2917,7 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         page = self.stack.get_visible_child_name()
         # The details page: Esc and Backspace go back; the group name page
         # needs Backspace for typing, so only Esc.
-        if page == "details":
+        if page in ("details", "info"):
             if key in (Gdk.KEY_Escape, Gdk.KEY_BackSpace):
                 self.close_aux_page()
                 return True
@@ -5022,8 +5041,9 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
     def hide_main_header(self):
         self.back_button.set_visible(True)
         for button in (self.hidden_button, self.mode_button, self.running_button, self.view_button,
-                       self.settings_button, self.filter_bar, self.mouse_hint):
-            button.set_visible(False)
+                       self.settings_button, self.info_button, self.filter_bar, self.mouse_hint):
+            if button is not None:
+                button.set_visible(False)
         # No hint on sub-pages: the title takes the whole header.
         self.title.set_hexpand(True)
 
@@ -5031,8 +5051,9 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         """The list's header buttons. The overview filters by group in its
         bottom bar instead of the list | groups | origin switch."""
         self.back_button.set_visible(False)
-        for button in (self.hidden_button, self.mode_button, self.settings_button):
-            button.set_visible(True)
+        for button in (self.hidden_button, self.mode_button, self.settings_button, self.info_button):
+            if button is not None:
+                button.set_visible(True)
         self.mode_button.set_visible(desktop.has_plugins())
         self.view_button.set_visible(not self.overview and self.view_buttons_on)
         self.filter_bar.set_visible(self.overview)
@@ -5095,7 +5116,7 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
     # --- group name and details pages ------------------------------------------
 
     def aux_page_open(self):
-        return self.stack.get_visible_child_name() in ("groupname", "details", "icon")
+        return self.stack.get_visible_child_name() in ("groupname", "details", "icon", "info")
 
     def open_aux_page(self, name, title, backspace_goes_back):
         if self.actions_menu_open():
@@ -5249,6 +5270,31 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         self.groups["collapsed"] = [g for g in self.groups["collapsed"] if g != gid]
         self.close_aux_page(refresh=False)
         self.refresh_list(selected_id=app["desktop_id"] if app is not None else "group:" + gid)
+
+    def build_info_page(self):
+        """Information: the author's other marketplace plugins as cards."""
+        page = Gtk.ScrolledWindow()
+        page.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        page.set_min_content_height(LIST_HEIGHT)
+        page.set_max_content_height(LIST_HEIGHT)
+        self.height_pages.append(page)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_margin_start(4)
+        box.set_margin_end(4)
+        rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        rule.add_css_class("launcher-settings-rule")
+        box.append(rule)
+        box.append(more_plugins.build_cards("ubruckhaus.simple-launcher-for-fools", "launcher",
+                                            on_opened=self.hide if POPUP else None))
+        page.set_child(box)
+        self.stack.add_named(page, "info")
+
+    def open_info_page(self):
+        if self.settings_open():
+            self.close_settings_page()
+        if self.shortcut_app is not None:
+            self.close_shortcut_page(focus_list=False)
+        self.open_aux_page("info", _("Information"), backspace_goes_back=True)
 
     def build_details_page(self):
         page = Gtk.ScrolledWindow()
