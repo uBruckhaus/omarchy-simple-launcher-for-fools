@@ -22,6 +22,7 @@ The interface (each implementation provides all of it):
     clients() -> list | None      the open windows (hyprctl clients -j), None when unknown
     knows_windows() -> bool       clients() lists the windows (else a running app counts as open)
     close_window(client)          close one of them
+    focus_window(client)          show one of them (its workspace, focused)
     can_float() -> bool           windows tile, so "Open in floating window" is offered
     exec_floating(argv) -> bool   start argv with its window floating
     workspaces() -> tuple | None  ([(id, [window classes])], first free id) for "Open on workspace", None: not offered

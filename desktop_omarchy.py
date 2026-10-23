@@ -89,6 +89,28 @@ def close_window(client):
     subprocess.Popen(["hyprctl", "dispatch", command], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def focus_window(client):
+    """Show the window: its workspace comes up and it gets the focus."""
+    address = client.get("address", "")
+    if not isinstance(address, str) or not re.fullmatch(r"0x[0-9a-fA-F]+", address):
+        return
+    command = "hl.dsp.focus({window = " + json.dumps("address:" + address) + "})"
+
+    def run():
+        # The Lua dispatcher of every Omarchy 4.x; the classic one if it is refused (as
+        # omarchy-launch-or-focus does).
+        try:
+            result = subprocess.run(["hyprctl", "dispatch", command], capture_output=True, text=True, timeout=2)
+            if result.returncode == 0:
+                return
+            subprocess.run(["hyprctl", "dispatch", "focuswindow", "address:" + address],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    import threading
+    threading.Thread(target=run, daemon=True).start()
+
+
 def can_float() -> bool:
     return True
 

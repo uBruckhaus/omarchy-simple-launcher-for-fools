@@ -47,7 +47,8 @@ FREE, SAME, LAUNCHER, CUSTOM, OMARCHY = "free", "same", "launcher", "custom", "o
 RETARGET = "retarget"
 
 _KEY_RE = re.compile(r"^(code:\d{1,3}|[A-Za-z0-9_]{1,32})$")
-_BIND_RE = re.compile(r'\b(?:o\.bind(?:_toggle)?|hl\.bind)\(\s*"([^"]+)"\s*(?:,\s*"([^"]*)")?(.*)')
+# o.rebind and o.bind_hold (push-to-talk) came with Omarchy 4.5; 4.0 has o.bind and o.bind_toggle.
+_BIND_RE = re.compile(r'\b(?:o\.(?:re)?bind(?:_toggle|_hold)?|hl\.bind)\(\s*"([^"]+)"\s*(?:,\s*"([^"]*)")?(.*)')
 _UNBIND_RE = re.compile(r'\bhl\.unbind\(\s*"([^"]+)"')
 _WEBAPP_RE = re.compile(r'\bwebapp\s*=\s*"([^"]+)"')
 _OMARCHY_RE = re.compile(r'\bomarchy\s*=\s*"([^"]+)"')

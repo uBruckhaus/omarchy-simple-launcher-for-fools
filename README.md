@@ -30,6 +30,16 @@ Open an app's menu (`☰`, `→`) → **Shortcut…**, or press `Ctrl+K`.
 - **All shortcuts of an app in one place**: launcher-made ones, your own `bindings.lua` binds and Omarchy defaults (including your default terminal, browser and editor, e.g. `Super + Enter` → Foot). Change, remove or turn off any of them; a `+1` badge in the list shows apps with more than one.
 - **No duplicates, no edits to your files**: a key that already opens the same thing is never added twice. Everything lives in a generated `~/.config/hypr/simple-launcher-shortcuts.lua`, validated with `hyprctl configerrors` and rolled back if Hyprland rejects it.
 
+## Changes in 2.4.0
+
+**Switch to window.** An app with open windows gets **Switch to window** in its menu, in a section of its own above **Shortcut…**. With one window it goes straight there (its workspace shows and the window gets the focus); with several, **Switch to window ›** lists each window by its title with its workspace, and a click switches to that one. App Manager asks Hyprland with `hl.dsp.focus({window = "address:0x…"})` (only a hex window address from `hyprctl clients -j` is ever put into it) and, should that dispatcher be refused, with the classic `focuswindow`, as Omarchy's own `omarchy-launch-or-focus` does.
+
+**No more duplicate AppImage entries.** AppImages that an installer gave a desktop entry (e.g. the Craft apps' `photocraft-0.14.0-linux-x86_64.AppImage` → *PhotoCraft*) no longer show up a second time as "photocraftlinux x86" without an icon, and neither do older versions of them lying next to the new one. Names guessed from a file name drop the version, `linux` and CPU parts; of several versions without a desktop entry only the newest is listed.
+
+**Information page from the marketplace.** The ⓘ page's cards now come from the marketplace's catalog, so newly published plugins of the author appear without an App Manager update (see *Privacy and network*); a plugin this version does not know yet shows the first sentence of its marketplace description, in English. The layout is unchanged.
+
+**Omarchy 4.0 and 4.5.** Your own `o.rebind(…)` and `o.bind_hold(…)` lines (helpers new in Omarchy 4.5) are now recognised as your bindings on the shortcut page instead of being labelled Omarchy defaults.
+
 ## Changes in 2.2.0
 
 **Open in floating window.** Every app's menu has **Open in floating window**: its first window opens floating (movable and resizable) even on a tiled workspace. App Manager asks Hyprland to start it with the float rule (`hyprctl eval 'hl.exec_cmd(…, {float = true})'`); the command is the same `uwsm-app -- <app>.desktop` as a normal start, shell-quoted and passed to Lua with every byte escaped, so nothing in a file name can reach the code around it.
@@ -94,6 +104,7 @@ App Manager sends nothing about you anywhere. It uses the network only for these
 
 - **Plugin updates:** `git fetch origin HEAD` in the git checkouts under `~/.config/omarchy/plugins` (the same as `omarchy plugin update`), at most every 30 minutes while App Manager is used.
 - **Package updates:** `checkupdates` (a private copy of the package database) and `yay -Qua` for AUR packages, at most every 30 minutes.
+- **Information page (ⓘ):** only when you open it, at most once an hour, `curl --proto =https --max-redirs 0` to the marketplace's catalog `https://raw.githubusercontent.com/omacom/omarchy-plugin-marketplace/main/site/catalog.json` (at most 40 MiB and 40 s; with the last `ETag`, so an unchanged catalog is not downloaded again). Only the author's own entries (repositories under `github.com/ubruckhaus`, at most 60) are kept, as id, name, version, description text and the marketplace's verified flag, with the time of the last check and the `ETag`, in `~/.cache/applauncher/plugin-catalog.json` (written atomically). Offline, the cached list or the built-in one is shown. A failed attempt counts as well, so it is never tried more than once an hour.
 - **Change icon…:** only when you search, `curl --proto =https --max-redirs 0` to `cdn.jsdelivr.net`: the three collections' name lists (at most 4 MiB each, cached in `~/.cache/applauncher/icon-index/` and fetched again after a week) and icon files (at most 1 MiB, checked like every other icon before it is shown).
 
 ## Changes in 1.9.2
@@ -213,7 +224,7 @@ Open the settings page with the **gear (⚙)** at the top right of the popup; **
 
 **Reset to defaults** in each card sets its options back. They are stored in `~/.config/applauncher/settings.json` (mode `0600`, written atomically through an exclusive temp file), next to the default shortcut modifiers.
 
-The **ⓘ** button beside the gear opens an **Information** page with a card for each of the author's other plugins in the Omarchy Plugin Marketplace, with a short description in the panel's language. A click on a card opens that plugin's marketplace page in the browser (a fixed `https://plugins.omarchy.org/plugin.html?id=…` address); nothing is downloaded. **← Back**, Backspace or Esc returns. It is part of the Omarchy look only. The marks legend button is now a question mark, so it is not mistaken for **ⓘ**.
+The **ⓘ** button beside the gear opens an **Information** page with a card for each of the author's other plugins in the Omarchy Plugin Marketplace, with a short description in the panel's language. A click on a card opens that plugin's marketplace page in the browser (a fixed `https://plugins.omarchy.org/plugin.html?id=…` address). Since 2.4.0 the list comes from the marketplace's catalog (see *Privacy and network*). **← Back**, Backspace or Esc returns. It is part of the Omarchy look only. The marks legend button is now a question mark, so it is not mistaken for **ⓘ**.
 
 ## Open as administrator (optional)
 

@@ -134,6 +134,15 @@ class ShortcutTests(unittest.TestCase):
         # X is not live (e.g. preinstalled bindings off), so it is not shown.
         self.assertEqual(b.external_shortcuts({"name": "X", "exec": "omarchy-launch-webapp https://x.com/"}), [])
 
+    def test_omarchy_45_rebind_and_hold_are_user_binds(self):
+        path = Path(self.tmp.name) / "bindings.lua"
+        path.write_text('o.rebind("SUPER + B", "My browser", { launch = "firefox" })\n'
+                        'o.bind_hold("F9", "Talk", "omarchy-dictation start", "Stop", "omarchy-dictation stop")\n'
+                        'o.reboot("SUPER + R", "not a bind")\n')
+        binds, _ = shortcuts.parse_user_binds([path])
+        self.assertEqual([(shortcuts.combo_string(b["combo"]), b["description"]) for b in binds],
+                         [("SUPER + B", "My browser"), ("F9", "Talk")])
+
     def test_external_shortcuts_include_omarchy_launch_defaults(self):
         path = Path(self.tmp.name) / "applications.lua"
         path.write_text('o.bind("SUPER + SHIFT + F", "File manager", { omarchy = "nautilus" })\n'

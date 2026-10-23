@@ -73,6 +73,7 @@ from i18n import _, N_, ngettext
 import details
 import groups
 import more_plugins
+import plugin_catalog
 from layer_watch import LayerWatch
 import pidfile
 import shortcuts
@@ -3725,6 +3726,15 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
             # A package is never updated on its own on Arch (partial upgrades break
             # things): Omarchy's system update, as from the bar's update icon.
             add_action(_("Update system…"), self.update_system, "software-update-available-symbolic")
+        # The app's open windows, in a section of their own above Shortcut….
+        windows = self.app_windows(app) if not app.get("self_launcher") else []
+        if windows:
+            add_separator()
+            if len(windows) == 1:
+                add_action(_("Switch to window"), lambda: self.switch_to_window(windows[0]), "go-jump-symbolic")
+            else:
+                add_action(_("Switch to window"), lambda: self.fill_window_choice(popover, app),
+                           "go-jump-symbolic", keep_open=True, end_icon="go-next-symbolic")
         # A shortcut needs something to open: not a widget that is only a bar part.
         if desktop.has_shortcuts() and (app.get("self_launcher") or app.get("openable", True)):
             if not app.get("self_launcher"):
@@ -4192,6 +4202,78 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         if free is not None:
             entries.append(item(_("Workspace {0}").format(free), "list-add-symbolic",
                                 lambda: (popover.popdown(), self.launch_on_workspace(app, free)), _("empty")))
+        popover.set_child(box)
+        (entries[0] if entries else back).grab_focus()
+
+    def app_windows(self, app):
+        """The app's open windows, by workspace, the last used first within one."""
+        if "plugin_id" in app or "tray_id" in app or not desktop.knows_windows():
+            return []
+        windows = [c for c in self.clients if isinstance(c, dict) and self.window_matches(c, app)]
+
+        def order(client):
+            workspace = client.get("workspace") if isinstance(client.get("workspace"), dict) else {}
+            number = workspace.get("id")
+            history = client.get("focusHistoryID")
+            return (number if type(number) is int and number > 0 else 1 << 30,
+                    history if type(history) is int else 1 << 30)
+        return sorted(windows, key=order)
+
+    def switch_to_window(self, client):
+        self.hide()
+        desktop.focus_window(client)
+
+    def fill_window_choice(self, popover, app):
+        """Second level of Switch to window: each open window of the app, with its workspace."""
+        windows = self.app_windows(app)
+        if not windows:
+            self.fill_actions(popover, app)
+            return
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        for side in ("start", "end", "top", "bottom"):
+            getattr(box, f"set_margin_{side}")(4)
+
+        def item(label, icon, callback, note=None):
+            button = Gtk.Button()
+            button.add_css_class("flat")
+            button.add_css_class("launcher-menu-item")
+            self.focus_follows_pointer(button)
+            line = Gtk.Box(spacing=8)
+            for side in ("start", "end"):
+                getattr(line, f"set_margin_{side}")(8)
+            line.set_margin_top(6)
+            line.set_margin_bottom(6)
+            image = Gtk.Image.new_from_icon_name(icon)
+            image.set_pixel_size(14)
+            line.append(image)
+            text = Gtk.Label(label=label, xalign=0)
+            text.set_hexpand(True)
+            text.set_ellipsize(3)  # Pango END: long window titles end in …
+            text.set_max_width_chars(40)
+            line.append(text)
+            if note:
+                tag = Gtk.Label(label=note)
+                tag.add_css_class("launcher-shortcut-chip")
+                line.append(tag)
+            button.set_child(line)
+            button.connect("clicked", lambda *_: callback())
+            box.append(button)
+            return button
+
+        back = item(_("Back"), "go-previous-symbolic", lambda: self.fill_actions(popover, app))
+        title = Gtk.Label(label=_("Switch to a window of {0}").format(app['name']), xalign=0)
+        title.add_css_class("sc-section")
+        title.set_margin_start(8)
+        box.append(title)
+        entries = []
+        for client in windows:
+            workspace = client.get("workspace") if isinstance(client.get("workspace"), dict) else {}
+            number = workspace.get("id")
+            note = _("Workspace {0}").format(number) if type(number) is int and number > 0 else \
+                str(workspace.get("name") or "").removeprefix("special:")[:20] or None
+            label = str(client.get("title") or client.get("class") or app["name"])[:200]
+            entries.append(item(label, "focus-windows-symbolic",
+                                lambda c=client: (popover.popdown(), self.switch_to_window(c)), note))
         popover.set_child(box)
         (entries[0] if entries else back).grab_focus()
 
@@ -5255,10 +5337,45 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         rule.add_css_class("launcher-settings-rule")
         box.append(rule)
-        box.append(more_plugins.build_cards("ubruckhaus.simple-launcher-for-fools", "launcher",
-                                            on_opened=self.hide if POPUP else None))
+        # The author's plugins, from the marketplace (plugin_catalog): refreshed when the page opens.
+        self.info_cards = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        box.append(self.info_cards)
+        self.info_shown = None
+        self.fill_info_cards(plugin_catalog.load().get("plugins", []))
         page.set_child(box)
         self.stack.add_named(page, "info")
+
+    def fill_info_cards(self, plugins):
+        """The cards for this list (App Manager itself left out); the built-in list when there is none yet."""
+        cards = plugin_catalog.cards(plugins)
+        if cards == self.info_shown:
+            return
+        self.info_shown = cards
+        while (child := self.info_cards.get_first_child()) is not None:
+            self.info_cards.remove(child)
+        self.info_cards.append(more_plugins.build_cards("ubruckhaus.simple-launcher-for-fools", "launcher",
+                                                        on_opened=self.hide if POPUP else None, plugins=cards))
+
+    def refresh_info_cards(self):
+        """The marketplace's list (at most hourly, only if it changed), on a thread."""
+        if getattr(self, "info_refreshing", False):
+            return
+        self.info_refreshing = True
+
+        def work():
+            plugins = None
+            try:
+                plugins = plugin_catalog.refresh()
+            finally:
+                # Always back on the main loop, so a failure never leaves the page refreshing.
+                GLib.idle_add(done, plugins)
+
+        def done(plugins):
+            self.info_refreshing = False
+            if plugins is not None:
+                self.fill_info_cards(plugins)
+            return GLib.SOURCE_REMOVE
+        threading.Thread(target=work, daemon=True).start()
 
     def open_info_page(self):
         if self.settings_open():
@@ -5266,6 +5383,7 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         if self.shortcut_app is not None:
             self.close_shortcut_page(focus_list=False)
         self.open_aux_page("info", _("Information"), backspace_goes_back=True)
+        self.refresh_info_cards()
 
     def build_details_page(self):
         page = Gtk.ScrolledWindow()

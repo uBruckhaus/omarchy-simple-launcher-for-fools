@@ -116,6 +116,10 @@ def close_window(_client):
     pass
 
 
+def focus_window(_client):
+    pass
+
+
 def has_plugins() -> bool:
     return False
 
