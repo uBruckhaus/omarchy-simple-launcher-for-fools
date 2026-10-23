@@ -67,6 +67,7 @@ from launcher_core import (
     icon_bytes, icon_file_for,
 )
 from palette import ThemePalette
+from key_colors import key_owner_colors
 import i18n
 from i18n import _, N_, ngettext
 import details
@@ -308,36 +309,6 @@ PLUGIN_DIR = Path(__file__).resolve().parent
 def is_widget(app):
     """Entries of the widget list: shell plugins and tray icons."""
     return "plugin_id" in app or "tray_id" in app
-
-
-def _mix(a, b, amount):
-    """Blend hex colour a toward b by amount (0..1)."""
-    a, b = a.lstrip("#"), b.lstrip("#")
-    try:
-        mixed = [round(int(a[i:i + 2], 16) * (1 - amount) + int(b[i:i + 2], 16) * amount) for i in (0, 2, 4)]
-    except ValueError:
-        return "#" + a
-    return "#" + "".join(f"{v:02x}" for v in mixed)
-
-
-def _hue(hex_code):
-    h = hex_code.lstrip("#")
-    try:
-        return colorsys.rgb_to_hsv(*(int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)))[0]
-    except ValueError:
-        return 0.0
-
-
-def key_owner_colors(colors):
-    """Free, yours (yellow), Omarchy (orange) and error (red) colours. Taken
-    keys are hints — they can be rebound. Some themes' red is nearly their
-    orange; push it toward a clear red so errors stand out."""
-    orange, red = colors["orange"], colors["red"]
-    distance = abs(_hue(red) - _hue(orange))
-    distance = min(distance, 1 - distance)
-    if distance < 0.06:
-        red = _mix(red, "#e5383b", 0.6)
-    return colors["green"], colors["yellow"], orange, red
 
 
 def code_stamp():

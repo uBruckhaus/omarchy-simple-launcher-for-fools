@@ -20,6 +20,9 @@ from pathlib import Path
 NAME = "omarchy"
 APP_ID = "org.omarchy.simplelauncherforfools"
 COLORS_FILE = Path.home() / ".local/state/omarchy/current/theme/colors.toml"
+_COLOR_RE = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})")
+OLD_COLOR_KEYS = {"red": "color1", "green": "color2", "yellow": "color3",
+                  "selection": "selection_background"}
 
 
 def app_id() -> str:
@@ -30,15 +33,25 @@ def popup() -> bool:
     return True
 
 
+def _is_color(value) -> bool:
+    return isinstance(value, str) and bool(_COLOR_RE.fullmatch(value.strip()))
+
+
 def theme_colors(path=None) -> dict:
     from palette import DEFAULT_COLORS
     try:
         theme = tomllib.loads(Path(path or COLORS_FILE).read_text())
     except (OSError, ValueError):
         return DEFAULT_COLORS.copy()
-    colors = {key: theme.get(key, fallback) for key, fallback in DEFAULT_COLORS.items()}
+    # Older themes name the terminal colours only: color1 red, color2 green, color3 yellow.
+    for key, old in OLD_COLOR_KEYS.items():
+        if not _is_color(theme.get(key)) and _is_color(theme.get(old)):
+            theme[key] = theme[old]
+    colors = {key: theme[key] if _is_color(theme.get(key)) else fallback
+              for key, fallback in DEFAULT_COLORS.items()}
     if "muted" not in theme:
-        colors["muted"] = theme.get("dark_foreground") or theme.get("color8") or DEFAULT_COLORS["muted"]
+        colors["muted"] = next((theme[k] for k in ("dark_foreground", "color8") if _is_color(theme.get(k))),
+                               DEFAULT_COLORS["muted"])
     return colors
 
 
