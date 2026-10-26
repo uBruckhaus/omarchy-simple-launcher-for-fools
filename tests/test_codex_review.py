@@ -1,11 +1,14 @@
 """2.4.1: findings from the Codex review — an env prefix that changes PATH,
-Quit after a PID was reused, and an icon path swapped for a FIFO."""
+Quit after a PID was reused, and an icon path swapped for a FIFO; then
+Quit only by the canonical executable and bounded desktop entry reads."""
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -28,15 +31,25 @@ class EnvPathTests(unittest.TestCase):
         self.assertFalse(launcher_core.env_changes_path("prog PATH=/x"))
 
 
+def _sleep_path():
+    return os.path.realpath(shutil.which("sleep"))
+
+
 class EndProcessesTests(unittest.TestCase):
     def test_only_a_process_that_still_is_the_app_is_ended(self):
         proc = subprocess.Popen(["sleep", "30"])
         try:
             time.sleep(0.1)
+            path = _sleep_path()
+            targets = launcher_core.executable_processes(path)
+            self.assertIn(proc.pid, targets)
+            mine = {proc.pid: targets[proc.pid]}
             # A reused PID now belongs to another program: nothing is sent.
-            self.assertEqual(launcher_core.end_processes("not-sleep", {proc.pid}), 0)
+            self.assertEqual(launcher_core.end_processes("/usr/bin/not-sleep", mine), 0)
+            # Same PID and program, but another start time (a later process): nothing either.
+            self.assertEqual(launcher_core.end_processes(path, {proc.pid: mine[proc.pid] + 1}), 0)
             self.assertIsNone(proc.poll())
-            self.assertEqual(launcher_core.end_processes("sleep", {proc.pid}), 1)
+            self.assertEqual(launcher_core.end_processes(path, mine), 1)
             self.assertEqual(proc.wait(timeout=5), -15)
         finally:
             if proc.poll() is None:
@@ -46,7 +59,98 @@ class EndProcessesTests(unittest.TestCase):
     def test_gone_pids_are_skipped(self):
         proc = subprocess.Popen(["true"])
         proc.wait()
-        self.assertEqual(launcher_core.end_processes("true", {proc.pid}), 0)
+        self.assertEqual(launcher_core.end_processes(os.path.realpath(shutil.which("true")), {proc.pid: 0}), 0)
+
+
+class QuitIdentityTests(unittest.TestCase):
+    def test_interpreters_and_wrappers_have_no_quit_target(self):
+        python = os.path.realpath(sys.executable)          # e.g. /usr/bin/python3.14
+        for command in (f"{python} /opt/app/app.py", "/usr/bin/python3.14 app.py", "python3 -m app",
+                        "env FOO=1 python3.14 app.py", "bash -c app", "/usr/bin/env app",
+                        "flatpak run org.example.App", "node22 app.js", "foot -e htop"):
+            with self.subTest(command=command):
+                self.assertIsNone(launcher_core.quit_target({"exec": command, "desktop_id": "x"}))
+
+    def test_web_apps_terminal_apps_and_cli_tools_have_none(self):
+        sleep = _sleep_path()
+        for app in ({"exec": sleep, "terminal": True}, {"exec": sleep, "pwa": True},
+                    {"exec": f"{sleep} --app-id=abc"}, {"exec": sleep, "cli_command": "x"}):
+            with self.subTest(app=app):
+                self.assertIsNone(launcher_core.quit_target(app))
+
+    def test_the_canonical_executable_is_the_target(self):
+        self.assertEqual(launcher_core.quit_target({"exec": "sleep 30", "desktop_id": "s"}), _sleep_path())
+
+    def test_two_entries_of_one_executable_are_ambiguous(self):
+        writer = {"exec": "sleep --writer", "desktop_id": "writer"}
+        calc = {"exec": "sleep --calc", "desktop_id": "calc"}
+        self.assertIsNone(launcher_core.quit_target(writer, [writer, calc]))
+        self.assertEqual(launcher_core.quit_target(writer, [writer]), _sleep_path())
+
+    def test_same_name_in_another_folder_is_not_the_app(self):
+        # An entry for /tmp/x/sleep (a copy) must not reach the system's sleep processes.
+        with tempfile.TemporaryDirectory() as folder:
+            copy = os.path.join(folder, "sleep")
+            shutil.copy2(_sleep_path(), copy)
+            proc = subprocess.Popen(["sleep", "30"])
+            try:
+                time.sleep(0.1)
+                target = launcher_core.quit_target({"exec": copy, "desktop_id": "copy"})
+                self.assertEqual(target, os.path.realpath(copy))
+                found = launcher_core.executable_processes(target)
+                self.assertNotIn(proc.pid, found)
+                self.assertEqual(launcher_core.end_processes(target, {proc.pid: 0}), 0)
+                self.assertIsNone(proc.poll())
+            finally:
+                proc.kill()
+                proc.wait()
+
+
+class DesktopFileReadTests(unittest.TestCase):
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.dir = Path(self.folder.name)
+        patcher = mock.patch.object(launcher_core, "DESKTOP_DIRS", [self.dir])
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        for name in ("scan_standalone_appimages",):
+            p = mock.patch.object(launcher_core, name, return_value=[])
+            p.start()
+            self.addCleanup(p.stop)
+        p = mock.patch.object(launcher_core.cli_tools, "cli_entries", return_value=[])
+        p.start()
+        self.addCleanup(p.stop)
+
+    def write_good(self):
+        (self.dir / "good.desktop").write_text(
+            f"[Desktop Entry]\nType=Application\nName=Good\nExec={_sleep_path()} 1\n"
+            "Actions=new;\n\n[Desktop Action new]\nName=New\nExec=sleep 2\n")
+
+    def test_fifo_entry_never_blocks(self):
+        os.mkfifo(self.dir / "fifo.desktop")
+        os.symlink(self.dir / "fifo.desktop", self.dir / "link-to-fifo.desktop")
+        self.write_good()
+        started = time.monotonic()
+        apps = launcher_core.parse_desktop_files()
+        self.assertLess(time.monotonic() - started, 2.0)
+        self.assertEqual([a["name"] for a in apps], ["Good"])
+        self.assertEqual([a["id"] for a in apps[0]["actions"]], ["new"])
+        self.assertIsNone(launcher_core.read_desktop_file(self.dir / "fifo.desktop"))
+
+    def test_oversized_entry_is_skipped(self):
+        big = self.dir / "big.desktop"
+        big.write_text(f"[Desktop Entry]\nName=Big\nExec={_sleep_path()}\n" + "X-Pad=" + "a" * (300 * 1024) + "\n")
+        self.write_good()
+        self.assertIsNone(launcher_core.read_desktop_file(big))
+        self.assertEqual([a["name"] for a in launcher_core.parse_desktop_files()], ["Good"])
+
+    def test_endless_source_is_cut_off(self):
+        # /dev/zero is no regular file: refused before any read.
+        os.symlink("/dev/zero", self.dir / "zero.desktop")
+        self.assertIsNone(launcher_core.read_desktop_file(self.dir / "zero.desktop"))
+        self.write_good()
+        self.assertEqual([a["name"] for a in launcher_core.parse_desktop_files()], ["Good"])
 
 
 class IconFifoTests(unittest.TestCase):

@@ -57,7 +57,7 @@ import copy
 import shutil
 from launcher_core import (
     TERMINALS, app_process_name, browser_web_app, background_process_names, child_process_names, client_matches_app,
-    process_pids, end_processes, terminal_command,
+    process_pids, end_processes, executable_processes, quit_target, terminal_command,
     DESKTOP_DIRS, HIDDEN_FILE, HIDDEN_PLUGINS_FILE, get_appimage_directories,
     admin_action_enabled, admin_command, running_first_enabled, set_running_first, saved_view, set_view,
     saved_wide_layout, set_wide_layout, saved_look, set_look, APP_ICON_SIZES, DEFAULT_APP_ICON_SIZE,
@@ -6565,16 +6565,19 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         node = tray.find_quit(item["tray_menu"]) if item else None
         if node:
             return lambda: (tray.click(item, node["id"]), GLib.timeout_add(800, self.refresh_after_close))
-        name = app_process_name(app)
-        if state != "background" or not name or name in TERMINALS:
+        if state != "background":
             return None
-        pids = process_pids(name)
-        if not pids:
+        # Only processes of the app's own executable (its canonical path), never
+        # those of a shared interpreter or of a binary that only has the same name.
+        target = quit_target(app, self.apps)
+        targets = executable_processes(target) if target else {}
+        if not targets:
             return None
 
         def end():
-            # The menu may have stayed open a while: only processes that still are this app.
-            end_processes(name, pids)
+            # The menu may have stayed open a while: only processes that still are
+            # the ones found above (same PID, executable and start time).
+            end_processes(target, targets)
             GLib.timeout_add(800, self.refresh_after_close)
         return end
 
