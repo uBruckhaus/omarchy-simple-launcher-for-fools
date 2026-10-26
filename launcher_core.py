@@ -1482,14 +1482,33 @@ def _program_file(app):
     return path
 
 
-def _may_start(line, names):
-    """Whether an Exec line may start a program called one of names, by any
-    word of it: also after env options, inside sh -c '…' or env -S '…', or
-    as --opt=value. Errs towards yes; it only takes Quit away."""
+def _resolve_word(word):
+    """The canonical file a word of an Exec line names as a program, or None."""
+    try:
+        if "/" not in word:
+            word = shutil.which(word) or ""
+        return os.path.realpath(word) if os.path.isabs(word) else None
+    except (OSError, ValueError):
+        return None
+
+
+def _may_start(line, names, path, cache):
+    """Whether an Exec line may start the executable path (called one of
+    names), by any word of it: also after env options, inside sh -c '…' or
+    env -S '…', or as --opt=value; by name, or by another name that resolves
+    to path (a symlink alias). Errs towards yes; it only takes Quit away."""
     if not isinstance(line, str):
         return False
-    return any(piece and Path(piece).name.casefold() in names
-               for piece in re.split(r"[\s=:;'\"`|&()<>]+", line))
+    for piece in re.split(r"[\s=:;'\"`|&()<>]+", line):
+        if not piece:
+            continue
+        if Path(piece).name.casefold() in names:
+            return True
+        if piece not in cache:
+            cache[piece] = _resolve_word(piece)
+        if cache[piece] == path:
+            return True
+    return False
 
 
 def quit_target(app, apps=(), entry_execs=None):
@@ -1500,24 +1519,25 @@ def quit_target(app, apps=(), entry_execs=None):
     another entry may start the same executable (libreoffice --writer /
     --calc): another listed app, or any desktop entry (or action of one)
     the last scan read, hidden ones included (entry_execs, default
-    ENTRY_EXECS). That check goes by the program's name in any word of the
-    other Exec line, so wrapper forms it cannot resolve count as sharing."""
+    ENTRY_EXECS). That check goes by any word of the other Exec line that has
+    the program's name or resolves to the same file (a symlink alias), so
+    wrapper forms it cannot parse count as sharing."""
     if app.get("terminal") or app.get("pwa") or app.get("cli_command") or browser_web_app(app):
         return None
     path = _program_file(app)
     if path is None:
         return None
     names = {Path(path).name.casefold(), Path(exec_program(app.get("exec", "")) or path).name.casefold()}
-    own_id = app.get("desktop_id")
+    own_id, cache = app.get("desktop_id"), {}
     for other in apps:
         if other is app or (own_id and other.get("desktop_id") == own_id):
             continue
-        if _may_start(other.get("exec"), names):
+        if _may_start(other.get("exec"), names, path, cache):
             return None
     for desktop_id, line in ENTRY_EXECS if entry_execs is None else entry_execs:
         if own_id and desktop_id == own_id:
             continue
-        if _may_start(line, names):
+        if _may_start(line, names, path, cache):
             return None
     return path
 

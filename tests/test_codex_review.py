@@ -117,6 +117,18 @@ class QuitIdentityTests(unittest.TestCase):
             with self.subTest(line=line):
                 self.assertIsNone(launcher_core.quit_target(app, [app], [("other", line)]))
 
+    def test_symlink_aliases_of_one_executable_are_ambiguous(self):
+        with tempfile.TemporaryDirectory() as folder:
+            real = os.path.join(folder, "editor")
+            shutil.copy2(_sleep_path(), real)
+            for alias in ("editor-a", "editor-b"):
+                os.symlink(real, os.path.join(folder, alias))
+            a = {"exec": os.path.join(folder, "editor-a"), "desktop_id": "a"}
+            b = {"exec": os.path.join(folder, "editor-b"), "desktop_id": "b"}
+            self.assertIsNone(launcher_core.quit_target(a, [a, b], []))
+            self.assertIsNone(launcher_core.quit_target(a, [a], [("b", f"env -C /tmp {b['exec']} --x")]))
+            self.assertEqual(launcher_core.quit_target(a, [a], []), os.path.realpath(real))
+
     def test_relative_paths_have_no_quit_target(self):
         with tempfile.TemporaryDirectory() as folder:
             shutil.copy2(_sleep_path(), os.path.join(folder, "foo"))
