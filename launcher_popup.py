@@ -57,7 +57,7 @@ import copy
 import shutil
 from launcher_core import (
     TERMINALS, app_process_name, browser_web_app, background_process_names, child_process_names, client_matches_app,
-    process_pids, end_processes, executable_processes, quit_target, terminal_command,
+    process_pids, terminal_command,
     DESKTOP_DIRS, HIDDEN_FILE, HIDDEN_PLUGINS_FILE, get_appimage_directories,
     admin_action_enabled, admin_command, running_first_enabled, set_running_first, saved_view, set_view,
     saved_wide_layout, set_wide_layout, saved_look, set_look, APP_ICON_SIZES, DEFAULT_APP_ICON_SIZE,
@@ -6555,9 +6555,9 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         return app
 
     def quit_action(self, app, state):
-        """How to quit a running app, or None: its own tray Quit entry when it
-        has one (a clean exit), else end its process when it only runs in the
-        background (no window left to close)."""
+        """How to quit a running app, or None: only its own tray Quit entry (a
+        clean exit). Processes are never ended by App Manager itself: nothing
+        outside the app can tell reliably which processes are that app."""
         try:
             item = next((i for i in tray.list_items() if self.tray_app(i) is app), None)
         except Exception:
@@ -6565,21 +6565,7 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         node = tray.find_quit(item["tray_menu"]) if item else None
         if node:
             return lambda: (tray.click(item, node["id"]), GLib.timeout_add(800, self.refresh_after_close))
-        if state != "background":
-            return None
-        # Only processes of the app's own executable (its canonical path), never
-        # those of a shared interpreter or of a binary that only has the same name.
-        target = quit_target(app, self.apps)
-        targets = executable_processes(target) if target else {}
-        if not targets:
-            return None
-
-        def end():
-            # The menu may have stayed open a while: only processes that still are
-            # the ones found above (same PID, executable and start time).
-            end_processes(target, targets)
-            GLib.timeout_add(800, self.refresh_after_close)
-        return end
+        return None
 
     def load_plugins(self):
         self.tray_seen, self.plugins = self.collect_plugins()

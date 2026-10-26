@@ -251,19 +251,23 @@ def activate(item):
 
 def open_app(item_id):
     """Launch the app a tray icon belongs to (steam -> steam.desktop), for
-    icons without a primary action. Running apps come to the front."""
+    icons without a primary action. Running apps come to the front. The id
+    comes from the tray app, so it must be a plain desktop id; the file is
+    read bounded and non-blocking (launcher_core.desktop_app_info)."""
+    if not isinstance(item_id, str) or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,200}", item_id):
+        return False
     try:
-        import gi
-        gi.require_version("GioUnix", "2.0")
-        from gi.repository import GioUnix
-        info = GioUnix.DesktopAppInfo.new(f"{item_id}.desktop")
-    except (ValueError, TypeError, ImportError):
-        info = None
+        import launcher_core
+    except (ValueError, ImportError):
+        return False
+    path = next((d / f"{item_id}.desktop" for d in launcher_core.DESKTOP_DIRS
+                 if (d / f"{item_id}.desktop").exists()), None)
+    info = launcher_core.desktop_app_info(path) if path else None
     if info is None:
         return False
     try:
         import subprocess
-        subprocess.Popen(["uwsm-app", "--", info.get_filename()], stdout=subprocess.DEVNULL,
+        subprocess.Popen(["uwsm-app", "--", str(path)], stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, start_new_session=True)
         return True
     except OSError:

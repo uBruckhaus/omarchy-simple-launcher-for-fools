@@ -40,7 +40,7 @@ class DesktopLaunchTests(unittest.TestCase):
             with self.subTest(outcome=outcome), \
                     patch.object(launcher_core.shutil, "which", return_value="/usr/bin/uwsm-app"), \
                     patch.object(launcher_core.subprocess, "Popen", side_effect=OSError) as spawn, \
-                    patch.object(launcher_core.GioUnix.DesktopAppInfo, "new_from_filename", return_value=outcome):
+                    patch.object(launcher_core, "desktop_app_info", return_value=outcome):
                 self.assertFalse(launcher_core.launch_app(app))
                 self.assertEqual(spawn.call_count, 1)
                 self.assertEqual(spawn.call_args.args[0], ["uwsm-app", "--", app["desktop_path"]])
@@ -49,7 +49,7 @@ class DesktopLaunchTests(unittest.TestCase):
         app = {"desktop_path": "/tmp/example.desktop", "exec": "unused"}
         info = Mock(launch_uris=Mock(return_value=True))
         with patch.object(launcher_core.shutil, "which", return_value=None), \
-                patch.object(launcher_core.GioUnix.DesktopAppInfo, "new_from_filename", return_value=info), \
+                patch.object(launcher_core, "desktop_app_info", return_value=info), \
                 patch.object(launcher_core.subprocess, "Popen") as spawn:
             self.assertTrue(launcher_core.launch_app(app))
             info.launch_uris.assert_called_once_with([], None)
