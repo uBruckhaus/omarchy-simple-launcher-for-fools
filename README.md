@@ -30,6 +30,12 @@ Open an app's menu (`☰`, `→`) → **Shortcut…**, or press `Ctrl+K`.
 - **All shortcuts of an app in one place**: launcher-made ones, your own `bindings.lua` binds and Omarchy defaults (including your default terminal, browser and editor, e.g. `Super + Enter` → Foot). Change, remove or turn off any of them; a `+1` badge in the list shows apps with more than one.
 - **No duplicates, no edits to your files**: a key that already opens the same thing is never added twice. Everything lives in a generated `~/.config/hypr/simple-launcher-shortcuts.lua`, validated with `hyprctl configerrors` and rolled back if Hyprland rejects it.
 
+## Changes in 2.4.1
+
+**AppImage scan, more exact.** Only the program a desktop entry starts counts as its AppImage, not a file it opens with another program, and the `.AppImage` extension is matched in any case. Exec lines through `env` (also `/usr/bin/env`) skip its options and `VAR=value` words, so the real program is checked; forms like `env -S` or `env -C DIR` check `env` itself, and a path with a NUL byte counts as not runnable instead of stopping the scan. Names keep words that only start with a digit ("Foo-3D-1.0" → *Foo 3D*) and CPU names count only as words of their own. Of several versions, the final release beats its prereleases (rc > beta > alpha), `+build` metadata does not count, and the newest version stands for the older ones even when their built-in names differ.
+
+**App window on other desktops.** Outside Omarchy, App Manager's window can get narrow again after it was made wide. The Omarchy popup is unchanged.
+
 ## Changes in 2.4.0
 
 **Switch to window.** An app with open windows gets **Switch to window** in its menu, in a section of its own above **Shortcut…**. With one window it goes straight there (its workspace shows and the window gets the focus); with several, **Switch to window ›** lists each window by its title with its workspace, and a click switches to that one. App Manager asks Hyprland with `hl.dsp.focus({window = "address:0x…"})` (only a hex window address from `hyprctl clients -j` is ever put into it) and, should that dispatcher be refused, with the classic `focuswindow`, as Omarchy's own `omarchy-launch-or-focus` does.

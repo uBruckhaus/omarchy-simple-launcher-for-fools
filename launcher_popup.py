@@ -765,6 +765,10 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
         stack.set_transition_duration(140)
         stack.set_vhomogeneous(False)
+        # The app window: each page its own width, so the wide settings page does
+        # not keep the window from getting narrow. The popup keeps every page as
+        # wide as the widest (its card width is set by resize_to).
+        stack.set_hhomogeneous(POPUP)
         stack.set_interpolate_size(False)
         stack.add_named(scroller, "list")
         card.append(stack)
@@ -1291,7 +1295,10 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         else:
             columns = grid_columns(self.card_w)
         if columns != getattr(self, "grid_columns", None):
-            self.grid.set_min_children_per_line(columns)
+            # The popup's card has a set width: exactly this many columns. In the
+            # app window only a cap: a minimum would keep the window from getting
+            # narrower again (back to fewer columns and the list).
+            self.grid.set_min_children_per_line(columns if POPUP else 1)
             self.grid.set_max_children_per_line(columns)
             self.grid_columns = columns
 
