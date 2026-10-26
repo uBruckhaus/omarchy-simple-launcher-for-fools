@@ -110,6 +110,25 @@ class QuitIdentityTests(unittest.TestCase):
         self.assertIsNone(launcher_core.quit_target(app, [app], [("hidden-helper", "sleep --helper")]))
         self.assertEqual(launcher_core.quit_target(app, [app], [("visible", "sleep --own-action")]), _sleep_path())
 
+    def test_unresolved_wrapper_forms_count_as_sharing(self):
+        app = {"exec": "/usr/bin/sleep --first", "desktop_id": "first"}
+        for line in ("env -C /tmp /usr/bin/sleep --second", "env -S '/usr/bin/sleep --second'",
+                     "sh -c 'sleep 5'", "launcher --exec=/opt/x/sleep"):
+            with self.subTest(line=line):
+                self.assertIsNone(launcher_core.quit_target(app, [app], [("other", line)]))
+
+    def test_relative_paths_have_no_quit_target(self):
+        with tempfile.TemporaryDirectory() as folder:
+            shutil.copy2(_sleep_path(), os.path.join(folder, "foo"))
+            cwd = os.getcwd()
+            try:
+                os.chdir(folder)
+                self.assertIsNone(launcher_core.quit_target({"exec": "./foo", "desktop_id": "r"}, [], []))
+                with mock.patch.dict(os.environ, {"PATH": "."}):
+                    self.assertIsNone(launcher_core.quit_target({"exec": "foo", "desktop_id": "r"}, [], []))
+            finally:
+                os.chdir(cwd)
+
     def test_scan_records_hidden_entries(self):
         with tempfile.TemporaryDirectory() as folder:
             d = Path(folder)

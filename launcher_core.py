@@ -1465,6 +1465,10 @@ def _program_file(app):
         program = shutil.which(program)
         if not program:
             return None
+    # Only absolute paths: a relative one (./foo, or a relative PATH entry)
+    # would be resolved against this process's folder, not the entry's Path=.
+    if not os.path.isabs(program):
+        return None
     names = {Path(program).name.casefold()}
     try:
         path = os.path.realpath(program)
@@ -1478,29 +1482,42 @@ def _program_file(app):
     return path
 
 
+def _may_start(line, names):
+    """Whether an Exec line may start a program called one of names, by any
+    word of it: also after env options, inside sh -c '…' or env -S '…', or
+    as --opt=value. Errs towards yes; it only takes Quit away."""
+    if not isinstance(line, str):
+        return False
+    return any(piece and Path(piece).name.casefold() in names
+               for piece in re.split(r"[\s=:;'\"`|&()<>]+", line))
+
+
 def quit_target(app, apps=(), entry_execs=None):
     """The canonical executable that identifies app's own processes, for
     Quit, or None when the app cannot be told apart from other programs: it
     runs through an interpreter or wrapper (python3.14 app.py, env, flatpak),
-    in a terminal, as a web app of a browser, or another entry starts the
-    same executable (libreoffice --writer / --calc): another listed app, or
-    any desktop entry (or action of one) the last scan read, hidden ones
-    included (entry_execs, default ENTRY_EXECS)."""
+    in a terminal, as a web app of a browser, from a relative path, or
+    another entry may start the same executable (libreoffice --writer /
+    --calc): another listed app, or any desktop entry (or action of one)
+    the last scan read, hidden ones included (entry_execs, default
+    ENTRY_EXECS). That check goes by the program's name in any word of the
+    other Exec line, so wrapper forms it cannot resolve count as sharing."""
     if app.get("terminal") or app.get("pwa") or app.get("cli_command") or browser_web_app(app):
         return None
     path = _program_file(app)
     if path is None:
         return None
+    names = {Path(path).name.casefold(), Path(exec_program(app.get("exec", "")) or path).name.casefold()}
     own_id = app.get("desktop_id")
     for other in apps:
         if other is app or (own_id and other.get("desktop_id") == own_id):
             continue
-        if _program_file(other) == path:
+        if _may_start(other.get("exec"), names):
             return None
     for desktop_id, line in ENTRY_EXECS if entry_execs is None else entry_execs:
         if own_id and desktop_id == own_id:
             continue
-        if _program_file({"exec": line}) == path:
+        if _may_start(line, names):
             return None
     return path
 
