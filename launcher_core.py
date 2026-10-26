@@ -395,24 +395,26 @@ def exec_program(command):
         parts = shlex.split(command)
     except ValueError:
         return None
+    # An index, not list slices: thousands of VAR=value words stay linear.
+    i = 0
     if parts and Path(parts[0]).name == "env":
-        parts = parts[1:]
-        while parts:
-            word = parts[0]
+        i = 1
+        while i < len(parts):
+            word = parts[i]
             if word in _ENV_FLAGS or word.startswith("--unset=") or _ENV_ASSIGNMENT.fullmatch(word):
-                parts = parts[1:]
+                i += 1
             elif word in _ENV_WITH_VALUE:
-                parts = parts[2:]
+                i += 2
             elif word == "--":
-                parts = parts[1:]
-                while parts and _ENV_ASSIGNMENT.fullmatch(parts[0]):
-                    parts = parts[1:]
+                i += 1
+                while i < len(parts) and _ENV_ASSIGNMENT.fullmatch(parts[i]):
+                    i += 1
                 break
             elif word.startswith("-"):
                 return None
             else:
                 break
-    return parts[0] if parts else None
+    return parts[i] if i < len(parts) else None
 
 
 def env_changes_path(command):
@@ -486,8 +488,15 @@ def read_desktop_file(path, cap=MAX_DESKTOP_FILE_BYTES):
     return data.decode("utf-8", errors="ignore")
 
 
+# (desktop id, Exec line) of every desktop entry the last scan read, before
+# any filtering; quit_target checks them for a shared executable.
+ENTRY_EXECS = []
+
+
 def parse_desktop_files():
+    global ENTRY_EXECS
     apps, seen_desktop_ids, seen_names = [], set(), set()
+    entry_execs = []
     for directory in DESKTOP_DIRS:
         if not directory.is_dir():
             continue
@@ -511,6 +520,11 @@ def parse_desktop_files():
                     values[key] = value
                 elif (section or "").startswith("Desktop Action ") and line.startswith("Exec="):
                     action_execs[section.removeprefix("Desktop Action ")] = line[5:]
+            # Every entry counts for Quit's "executable shared by another entry"
+            # check, also those hidden (NoDisplay), deduplicated or failing TryExec.
+            for line in [values.get("Exec")] + list(action_execs.values()):
+                if line:
+                    entry_execs.append((path.stem, line))
             name, command = values.get("Name"), values.get("Exec")
             if not name or not command:
                 continue
@@ -568,6 +582,7 @@ def parse_desktop_files():
         except ValueError:
             pass
     apps.extend(e for e in cli_tools.cli_entries(known) if e["name"].strip().casefold() not in seen_names)
+    ENTRY_EXECS = entry_execs
     return sorted(apps, key=lambda app: app["name"].lower())
 
 
@@ -1395,13 +1410,14 @@ def app_process_name(app):
         args = shlex.split(app["exec"])
     except ValueError:
         return None
+    i = 0
     if args and Path(args[0]).name == "env":
-        args = args[1:]
-        while args and "=" in args[0] and not args[0].startswith("-"):
-            args = args[1:]
-    if not args:
+        i = 1
+        while i < len(args) and "=" in args[i] and not args[i].startswith("-"):
+            i += 1
+    if i >= len(args):
         return None
-    name = Path(args[0]).name.casefold()
+    name = Path(args[i]).name.casefold()
     # Shared interpreters/wrappers cannot identify an individual application.
     if name in {"sh", "bash", "env", "flatpak", "gtk-launch", "python", "python3", "java"}:
         return None
@@ -1462,21 +1478,29 @@ def _program_file(app):
     return path
 
 
-def quit_target(app, apps=()):
+def quit_target(app, apps=(), entry_execs=None):
     """The canonical executable that identifies app's own processes, for
     Quit, or None when the app cannot be told apart from other programs: it
     runs through an interpreter or wrapper (python3.14 app.py, env, flatpak),
-    in a terminal, as a web app of a browser, or another installed entry
-    starts the same executable (libreoffice --writer / --calc)."""
+    in a terminal, as a web app of a browser, or another entry starts the
+    same executable (libreoffice --writer / --calc): another listed app, or
+    any desktop entry (or action of one) the last scan read, hidden ones
+    included (entry_execs, default ENTRY_EXECS)."""
     if app.get("terminal") or app.get("pwa") or app.get("cli_command") or browser_web_app(app):
         return None
     path = _program_file(app)
     if path is None:
         return None
+    own_id = app.get("desktop_id")
     for other in apps:
-        if other is app or (other.get("desktop_id") and other.get("desktop_id") == app.get("desktop_id")):
+        if other is app or (own_id and other.get("desktop_id") == own_id):
             continue
         if _program_file(other) == path:
+            return None
+    for desktop_id, line in ENTRY_EXECS if entry_execs is None else entry_execs:
+        if own_id and desktop_id == own_id:
+            continue
+        if _program_file({"exec": line}) == path:
             return None
     return path
 

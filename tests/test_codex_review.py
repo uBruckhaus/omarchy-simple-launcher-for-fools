@@ -79,13 +79,13 @@ class QuitIdentityTests(unittest.TestCase):
                 self.assertIsNone(launcher_core.quit_target(app))
 
     def test_the_canonical_executable_is_the_target(self):
-        self.assertEqual(launcher_core.quit_target({"exec": "sleep 30", "desktop_id": "s"}), _sleep_path())
+        self.assertEqual(launcher_core.quit_target({"exec": "sleep 30", "desktop_id": "s"}, [], []), _sleep_path())
 
     def test_two_entries_of_one_executable_are_ambiguous(self):
         writer = {"exec": "sleep --writer", "desktop_id": "writer"}
         calc = {"exec": "sleep --calc", "desktop_id": "calc"}
-        self.assertIsNone(launcher_core.quit_target(writer, [writer, calc]))
-        self.assertEqual(launcher_core.quit_target(writer, [writer]), _sleep_path())
+        self.assertIsNone(launcher_core.quit_target(writer, [writer, calc], []))
+        self.assertEqual(launcher_core.quit_target(writer, [writer], []), _sleep_path())
 
     def test_same_name_in_another_folder_is_not_the_app(self):
         # An entry for /tmp/x/sleep (a copy) must not reach the system's sleep processes.
@@ -95,7 +95,7 @@ class QuitIdentityTests(unittest.TestCase):
             proc = subprocess.Popen(["sleep", "30"])
             try:
                 time.sleep(0.1)
-                target = launcher_core.quit_target({"exec": copy, "desktop_id": "copy"})
+                target = launcher_core.quit_target({"exec": copy, "desktop_id": "copy"}, [], [])
                 self.assertEqual(target, os.path.realpath(copy))
                 found = launcher_core.executable_processes(target)
                 self.assertNotIn(proc.pid, found)
@@ -104,6 +104,30 @@ class QuitIdentityTests(unittest.TestCase):
             finally:
                 proc.kill()
                 proc.wait()
+
+    def test_a_hidden_entry_of_the_same_executable_makes_it_ambiguous(self):
+        app = {"exec": "sleep 30", "desktop_id": "visible"}
+        self.assertIsNone(launcher_core.quit_target(app, [app], [("hidden-helper", "sleep --helper")]))
+        self.assertEqual(launcher_core.quit_target(app, [app], [("visible", "sleep --own-action")]), _sleep_path())
+
+    def test_scan_records_hidden_entries(self):
+        with tempfile.TemporaryDirectory() as folder:
+            d = Path(folder)
+            (d / "app.desktop").write_text(f"[Desktop Entry]\nName=App\nExec={_sleep_path()} 1\n")
+            (d / "helper.desktop").write_text(f"[Desktop Entry]\nName=Helper\nNoDisplay=true\nExec={_sleep_path()} 2\n")
+            with mock.patch.object(launcher_core, "DESKTOP_DIRS", [d]), \
+                    mock.patch.object(launcher_core, "scan_standalone_appimages", return_value=[]), \
+                    mock.patch.object(launcher_core.cli_tools, "cli_entries", return_value=[]):
+                apps = launcher_core.parse_desktop_files()
+            self.assertEqual([a["name"] for a in apps], ["App"])
+            self.assertIsNone(launcher_core.quit_target(apps[0], apps))
+
+    def test_many_env_assignments_stay_fast(self):
+        command = "env " + " ".join(f"A{i}=1" for i in range(20000)) + " prog"
+        started = time.monotonic()
+        self.assertEqual(launcher_core.exec_program(command), "prog")
+        self.assertEqual(launcher_core.app_process_name({"exec": command}), "prog")
+        self.assertLess(time.monotonic() - started, 2.0)
 
 
 class DesktopFileReadTests(unittest.TestCase):
