@@ -1444,13 +1444,14 @@ def process_pids(name):
 # Programs that run other code (a script, a jar, a web app) or start other
 # programs: their executable says nothing about which app a process is, so Quit
 # never ends processes by them. Version suffixes count too (python3.14, node22).
+# Version-manager shims (mise, asdf, …) are symlinks to the manager itself.
 _SHARED_PROGRAM_RE = re.compile(
     r"(?:python|pypy|perl|ruby|php|lua|luajit|node|nodejs|deno|bun|java|electron|wine|wine64|mono"
     r"|dotnet|gjs|qmlscene|tclsh|wish|rscript|guile|racket|sbcl|erl|elixir|julia)[0-9._-]*"
     r"|(?:ba|da|z|k|c|tc|mk|lk|a)?sh|fish|nu|xonsh|elvish|busybox|toybox|env|flatpak|snap|gtk-launch"
     r"|gio|xdg-open|xdg-terminal-exec|uwsm|uwsm-app|app2unit|systemd-run|sudo|pkexec|doas|run0|nohup"
     r"|setsid|stdbuf|nice|ionice|taskset|chrt|timeout|appimage-run|bwrap|firejail|distrobox|toolbox"
-    r"|nix|nix-shell|steam|exec", re.IGNORECASE)
+    r"|nix|nix-shell|steam|exec|mise|asdf|volta|corepack|npx|npm|pnpm|yarn|uv|uvx|pipx", re.IGNORECASE)
 
 
 def _program_file(app):

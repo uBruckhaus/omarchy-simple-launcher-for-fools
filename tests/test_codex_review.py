@@ -67,7 +67,7 @@ class QuitIdentityTests(unittest.TestCase):
         python = os.path.realpath(sys.executable)          # e.g. /usr/bin/python3.14
         for command in (f"{python} /opt/app/app.py", "/usr/bin/python3.14 app.py", "python3 -m app",
                         "env FOO=1 python3.14 app.py", "bash -c app", "/usr/bin/env app",
-                        "flatpak run org.example.App", "node22 app.js", "foot -e htop"):
+                        "flatpak run org.example.App", "node22 app.js", "foot -e htop", "/usr/bin/mise x -- codex"):
             with self.subTest(command=command):
                 self.assertIsNone(launcher_core.quit_target({"exec": command, "desktop_id": "x"}))
 
