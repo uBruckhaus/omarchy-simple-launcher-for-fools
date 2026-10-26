@@ -36,6 +36,10 @@ Open an app's menu (`☰`, `→`) → **Shortcut…**, or press `Ctrl+K`.
 
 **App window on other desktops.** Outside Omarchy, App Manager's window can get narrow again after it was made wide. The Omarchy popup is unchanged.
 
+**App icon size.** Settings has **App icon size** (32 to 64 px, 44 by default), like the dock's *Icon size*: the icons on the cards get that size, those in the list 12 px less. **Reset** sets it back.
+
+**Safer Quit, entries and icons.** **Quit** for an app that runs only in the background ends a process only if it is still that app (checked through a pidfd right before the signal), so a process number reused meanwhile by another program is never hit. An entry whose `env` prefix sets or clears `PATH` (`env PATH=… prog`, `env -i prog`) is no longer hidden because App Manager's own `PATH` lacks the program: `env` itself is checked. Icon files are opened without blocking and read only when they are regular files, so an icon path that a tray app swaps for a FIFO cannot freeze the popup.
+
 ## Changes in 2.4.0
 
 **Switch to window.** An app with open windows gets **Switch to window** in its menu, in a section of its own above **Shortcut…**. With one window it goes straight there (its workspace shows and the window gets the focus); with several, **Switch to window ›** lists each window by its title with its workspace, and a click switches to that one. App Manager asks Hyprland with `hl.dsp.focus({window = "address:0x…"})` (only a hex window address from `hyprctl clients -j` is ever put into it) and, should that dispatcher be refused, with the classic `focuswindow`, as Omarchy's own `omarchy-launch-or-focus` does.
@@ -226,6 +230,7 @@ Open the settings page with the **gear (⚙)** at the top right of the popup; **
 | Layout when wide | Folders or cards (two columns or more) | Folders |
 | View buttons when small | The list / groups / origin buttons in the small popup's header (`Ctrl+G` works anyway) | Off |
 | Corners | Like windows (Hyprland's window rounding, from the theme or `looknfeel.lua`), Rounded or Square: the popup, folders, cards and dock | Like windows |
+| App icon size | The icons on the cards (the list's are 12 px smaller): 32, 40, 44, 48, 56 or 64 px | 44 px |
 | Dock | See *Changes in 2.0.0* | Off |
 
 **Reset to defaults** in each card sets its options back. They are stored in `~/.config/applauncher/settings.json` (mode `0600`, written atomically through an exclusive temp file), next to the default shortcut modifiers.

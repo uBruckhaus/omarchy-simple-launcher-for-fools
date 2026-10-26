@@ -142,6 +142,8 @@ STRINGS = {
   "Workspace {0}": "Arbeitsfläche {0}",
   "empty": "leer",
   "Filter field": "Filterfeld",
+  "App icon size": "Größe der App-Symbole",
+  "How large the app icons are on the cards; the list's are a little smaller. Like the dock's Icon size.": "Wie groß die App-Symbole auf den Karten sind; die in der Liste sind etwas kleiner. Wie die Symbolgröße des Docks.",
   "The field above the folders when wide. Without it, typing still filters and the title shows what you typed.": "Das Feld über den Ordnern in der breiten Ansicht. Ohne es filtert Tippen trotzdem, und der Titel zeigt das Getippte.",
   "Hide the filter field. Typing still filters; Settings can show it again.": "Filterfeld ausblenden. Tippen filtert trotzdem; die Einstellungen können es wieder zeigen.",
   "\u0004The app of this shortcut was uninstalled. Delete it from your Hyprland files?": [
@@ -569,6 +571,8 @@ STRINGS = {
   "Workspace {0}": "Espacio de trabajo {0}",
   "empty": "vacío",
   "Filter field": "Campo de filtro",
+  "App icon size": "Tamaño de los iconos",
+  "How large the app icons are on the cards; the list's are a little smaller. Like the dock's Icon size.": "El tamaño de los iconos de las apps en las tarjetas; los de la lista son algo más pequeños. Como el tamaño de iconos del dock.",
   "The field above the folders when wide. Without it, typing still filters and the title shows what you typed.": "El campo sobre las carpetas en vista ancha. Sin él, escribir sigue filtrando y el título muestra lo que escribes.",
   "Hide the filter field. Typing still filters; Settings can show it again.": "Ocultar el campo de filtro. Escribir sigue filtrando; los ajustes pueden volver a mostrarlo.",
   "\u0004The app of this shortcut was uninstalled. Delete it from your Hyprland files?": [
@@ -996,6 +1000,8 @@ STRINGS = {
   "Workspace {0}": "Espace de travail {0}",
   "empty": "vide",
   "Filter field": "Champ de filtre",
+  "App icon size": "Taille des icônes",
+  "How large the app icons are on the cards; the list's are a little smaller. Like the dock's Icon size.": "La taille des icônes des apps sur les cartes ; celles de la liste sont un peu plus petites. Comme la taille des icônes du dock.",
   "The field above the folders when wide. Without it, typing still filters and the title shows what you typed.": "Le champ au-dessus des dossiers en vue large. Sans lui, la saisie filtre toujours et le titre affiche ce que vous tapez.",
   "Hide the filter field. Typing still filters; Settings can show it again.": "Masquer le champ de filtre. La saisie filtre toujours ; les réglages peuvent le réafficher.",
   "\u0004The app of this shortcut was uninstalled. Delete it from your Hyprland files?": [
@@ -1423,6 +1429,8 @@ STRINGS = {
   "Workspace {0}": "Area di lavoro {0}",
   "empty": "vuota",
   "Filter field": "Campo filtro",
+  "App icon size": "Dimensione delle icone",
+  "How large the app icons are on the cards; the list's are a little smaller. Like the dock's Icon size.": "Quanto sono grandi le icone delle app sulle schede; quelle dell'elenco sono un po' più piccole. Come la dimensione delle icone del dock.",
   "The field above the folders when wide. Without it, typing still filters and the title shows what you typed.": "Il campo sopra le cartelle nella vista larga. Senza, digitare filtra comunque e il titolo mostra ciò che hai digitato.",
   "Hide the filter field. Typing still filters; Settings can show it again.": "Nascondi il campo filtro. Digitare filtra comunque; le impostazioni possono mostrarlo di nuovo.",
   "\u0004The app of this shortcut was uninstalled. Delete it from your Hyprland files?": [
@@ -1850,6 +1858,8 @@ STRINGS = {
   "Workspace {0}": "Werkblad {0}",
   "empty": "leeg",
   "Filter field": "Filterveld",
+  "App icon size": "Grootte van app-pictogrammen",
+  "How large the app icons are on the cards; the list's are a little smaller. Like the dock's Icon size.": "Hoe groot de app-pictogrammen op de kaarten zijn; die in de lijst zijn iets kleiner. Zoals de pictogramgrootte van het dock.",
   "The field above the folders when wide. Without it, typing still filters and the title shows what you typed.": "Het veld boven de mappen in de brede weergave. Zonder veld filtert typen nog steeds en toont de titel wat je typt.",
   "Hide the filter field. Typing still filters; Settings can show it again.": "Filterveld verbergen. Typen filtert nog steeds; de instellingen kunnen het weer tonen.",
   "\u0004The app of this shortcut was uninstalled. Delete it from your Hyprland files?": [
@@ -2277,6 +2287,8 @@ STRINGS = {
   "Workspace {0}": "Obszar roboczy {0}",
   "empty": "pusty",
   "Filter field": "Pole filtra",
+  "App icon size": "Rozmiar ikon aplikacji",
+  "How large the app icons are on the cards; the list's are a little smaller. Like the dock's Icon size.": "Jak duże są ikony aplikacji na kartach; te na liście są nieco mniejsze. Jak rozmiar ikon w doku.",
   "The field above the folders when wide. Without it, typing still filters and the title shows what you typed.": "Pole nad folderami w szerokim widoku. Bez niego pisanie nadal filtruje, a tytuł pokazuje wpisany tekst.",
   "Hide the filter field. Typing still filters; Settings can show it again.": "Ukryj pole filtra. Pisanie nadal filtruje; ustawienia mogą je znów pokazać.",
   "\u0004The app of this shortcut was uninstalled. Delete it from your Hyprland files?": [
@@ -2709,6 +2721,8 @@ STRINGS = {
   "Workspace {0}": "Área de trabalho {0}",
   "empty": "vazia",
   "Filter field": "Campo de filtro",
+  "App icon size": "Tamanho dos ícones",
+  "How large the app icons are on the cards; the list's are a little smaller. Like the dock's Icon size.": "O tamanho dos ícones das apps nos cartões; os da lista são um pouco menores. Como o tamanho dos ícones da dock.",
   "The field above the folders when wide. Without it, typing still filters and the title shows what you typed.": "O campo acima das pastas na vista larga. Sem ele, escrever continua a filtrar e o título mostra o que escreveu.",
   "Hide the filter field. Typing still filters; Settings can show it again.": "Ocultar o campo de filtro. Escrever continua a filtrar; as definições podem voltar a mostrá-lo.",
   "\u0004The app of this shortcut was uninstalled. Delete it from your Hyprland files?": [
