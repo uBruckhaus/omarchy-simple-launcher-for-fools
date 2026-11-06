@@ -2,7 +2,8 @@
 
 Read from the marketplace catalog (the file the marketplace site and My Plugins use) only when the
 Information page is opened, at most once an hour, and only if it changed (its ETag: GitHub answers
-"not changed" without the large file). Only the author's own entries are kept, in the cache. Without
+"not changed" without the large file). Only the author's own entries (repositories of
+the account or its organization, OWNERS) are kept, in the cache. Without
 the network, the cached list is used, else the built-in one (more_plugins.PLUGINS). A plugin the
 app knows keeps its glyph and translated one-liner; a new one gets a generic glyph and the start
 of its catalog description.
@@ -23,7 +24,7 @@ from pathlib import Path
 import more_plugins
 
 CATALOG_URL = "https://raw.githubusercontent.com/omacom/omarchy-plugin-marketplace/main/site/catalog.json"
-OWNER = "ubruckhaus"                       # the repositories' owner on GitHub (the author's plugins)
+OWNERS = ["maprisma", "ubruckhaus"]        # the author's GitHub account and organization (repository owners)
 MAX_AGE = 3600
 MAX_BYTES = 40 * 1024 * 1024
 MAX_CACHE_BYTES = 1024 * 1024
@@ -63,7 +64,7 @@ def parse(data) -> list:
     items = data.get("plugins") if isinstance(data, dict) else None
     found = []
     for entry in items if isinstance(items, list) else []:
-        if not isinstance(entry, dict) or owner_of(entry.get("repo")) != OWNER:
+        if not isinstance(entry, dict) or owner_of(entry.get("repo")) not in OWNERS:
             continue
         kept = _entry(entry.get("id"), entry.get("name"), entry.get("description"), entry.get("version"),
                       entry.get("verificationStatus") == "verified")
@@ -123,8 +124,9 @@ def load(path: Path = CACHE) -> dict:
             if len(plugins) >= MAX_PLUGINS:
                 break
     etag = data.get("etag") if isinstance(data.get("etag"), str) and ETAG.match(data["etag"]) else ""
+    owners = data.get("owners") if data.get("owners") == OWNERS else None   # None: kept under other owners
     return {"plugins": plugins, "etag": etag, "checked": _time(data.get("checked")),
-            "tried": _time(data.get("tried"))}
+            "tried": _time(data.get("tried")), "owners": owners}
 
 
 def _save(data: dict, path: Path = CACHE):
@@ -180,13 +182,15 @@ def refresh(fetch=fetch, path: Path = CACHE, now: float | None = None) -> list:
     now = time.time() if now is None else now
     cached = load(path)
     plugins = cached.get("plugins", [])
-    last = max(cached.get("checked", 0), cached.get("tried", 0), _ATTEMPTS.get(str(path), 0))
+    current = cached.get("owners") == OWNERS     # a list kept under other owners is read again in full
+    checked = cached.get("checked", 0) if current else 0     # failed attempts still count
+    last = max(checked, cached.get("tried", 0), _ATTEMPTS.get(str(path), 0))
     if last and 0 <= now - last < MAX_AGE:
         return plugins
     _ATTEMPTS[str(path)] = now
     try:
-        status, answer, body = split_response(fetch(cached.get("etag", "")))
-        if status == 304 and cached:
+        status, answer, body = split_response(fetch(cached.get("etag", "") if current else ""))
+        if status == 304 and cached and current:
             pass
         elif status == 200:
             data = json.loads(body.decode("utf-8", "replace"))
@@ -196,7 +200,7 @@ def refresh(fetch=fetch, path: Path = CACHE, now: float | None = None) -> list:
         else:
             raise OSError(f"HTTP {status}")
         etag = answer.get("etag", "")
-        record = {"checked": now, "etag": etag if ETAG.match(etag) else "", "plugins": plugins}
+        record = {"checked": now, "etag": etag if ETAG.match(etag) else "", "plugins": plugins, "owners": OWNERS}
     except Exception:          # offline, too large, refused, not JSON: the cached list (or none)
         record = {**cached, "plugins": plugins, "tried": now}
     try:

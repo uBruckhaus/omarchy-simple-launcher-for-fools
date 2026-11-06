@@ -8,7 +8,7 @@ This document contains the ready-to-use copy, metadata, and feature breakdown fo
 
 - **Plugin ID**: `ubruckhaus.simple-launcher-for-fools`
 - **Display Name**: `App Manager`
-- **Version**: `2.4.1`
+- **Version**: `2.4.2`
 - **Author**: `Uwe Bruckhaus`
 - **Category**: `Desktop`
 - **Tags**: `launcher`, `bar`, `quickshell`

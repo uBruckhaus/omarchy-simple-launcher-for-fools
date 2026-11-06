@@ -33,6 +33,40 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual([p["id"] for p in found], ["ubruckhaus.wlan-monitor", "ubruckhaus.new-thing"])
         self.assertTrue(found[0]["verified"])
 
+    def test_plugins_in_the_authors_organization(self):
+        catalog = {"plugins": [
+            {"id": "ubruckhaus.maprisma-launcher", "name": "Maprisma Launcher",
+             "repo": "https://github.com/maprisma/omarchy-maprisma-launcher", "description": "Starts Maprisma."},
+            {"id": "ubruckhaus.fake", "name": "Fake", "repo": "https://github.com/maprisma-fake/x"}]}
+        self.assertEqual([p["id"] for p in pc.parse(catalog)], ["ubruckhaus.maprisma-launcher"])
+
+    def test_list_kept_under_the_old_owner_rule_is_read_again_in_full(self):
+        self.cache.write_text(json.dumps({"checked": 1000, "etag": '"old"',
+                                          "plugins": [{"id": "ubruckhaus.x", "name": "X"}]}))
+        asked = []
+
+        def fetch(etag):
+            asked.append(etag)
+            return answer(200, json.dumps(CATALOG).encode())
+        self.assertEqual(len(pc.refresh(fetch, self.cache, now=1500)), 2)     # within the hour, still read
+        self.assertEqual(asked, [""])                                                   # without the old ETag
+        self.assertEqual(json.loads(self.cache.read_text())["owners"], pc.OWNERS)
+        pc._ATTEMPTS.clear()
+        pc.refresh(fetch, self.cache, now=1600)
+        self.assertEqual(asked, [""])                                                   # now current: hourly again
+
+    def test_old_list_offline_is_kept_and_retried_hourly(self):
+        self.cache.write_text(json.dumps({"checked": 1000, "plugins": [{"id": "ubruckhaus.x", "name": "X"}]}))
+        asked = []
+
+        def offline(etag):
+            asked.append(etag)
+            raise OSError("no network")
+        self.assertEqual([p["id"] for p in pc.refresh(offline, self.cache, now=1500)], ["ubruckhaus.x"])
+        pc._ATTEMPTS.clear()
+        pc.refresh(offline, self.cache, now=1600)
+        self.assertEqual(len(asked), 1)
+
     def test_read_then_not_changed_then_offline(self):
         asked = []
 

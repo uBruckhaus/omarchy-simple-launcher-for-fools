@@ -30,6 +30,10 @@ Open an app's menu (`☰`, `→`) → **Shortcut…**, or press `Ctrl+K`.
 - **All shortcuts of an app in one place**: launcher-made ones, your own `bindings.lua` binds and Omarchy defaults (including your default terminal, browser and editor, e.g. `Super + Enter` → Foot). Change, remove or turn off any of them; a `+1` badge in the list shows apps with more than one.
 - **No duplicates, no edits to your files**: a key that already opens the same thing is never added twice. Everything lives in a generated `~/.config/hypr/simple-launcher-shortcuts.lua`, validated with `hyprctl configerrors` and rolled back if Hyprland rejects it.
 
+## Changes in 2.4.2
+
+**Information page.** The cards also list the author's plugins kept in the author's GitHub organization (Maprisma Launcher in `github.com/maprisma`). A cached list from before is read again once.
+
 ## Changes in 2.4.1
 
 **AppImage scan, more exact.** Only the program a desktop entry starts counts as its AppImage, not a file it opens with another program, and the `.AppImage` extension is matched in any case. Exec lines through `env` (also `/usr/bin/env`) skip its options and `VAR=value` words, so the real program is checked; forms like `env -S` or `env -C DIR` check `env` itself, and a path with a NUL byte counts as not runnable instead of stopping the scan. Names keep words that only start with a digit ("Foo-3D-1.0" → *Foo 3D*) and CPU names count only as words of their own. Of several versions, the final release beats its prereleases (rc > beta > alpha), `+build` metadata does not count, and the newest version stands for the older ones even when their built-in names differ.
@@ -114,7 +118,7 @@ App Manager sends nothing about you anywhere. It uses the network only for these
 
 - **Plugin updates:** `git fetch origin HEAD` in the git checkouts under `~/.config/omarchy/plugins` (the same as `omarchy plugin update`), at most every 30 minutes while App Manager is used.
 - **Package updates:** `checkupdates` (a private copy of the package database) and `yay -Qua` for AUR packages, at most every 30 minutes.
-- **Information page (ⓘ):** only when you open it, at most once an hour, `curl --proto =https --max-redirs 0` to the marketplace's catalog `https://raw.githubusercontent.com/omacom/omarchy-plugin-marketplace/main/site/catalog.json` (at most 40 MiB and 40 s; with the last `ETag`, so an unchanged catalog is not downloaded again). Only the author's own entries (repositories under `github.com/ubruckhaus`, at most 60) are kept, as id, name, version, description text and the marketplace's verified flag, with the time of the last check and the `ETag`, in `~/.cache/applauncher/plugin-catalog.json` (written atomically). Offline, the cached list or the built-in one is shown. A failed attempt counts as well, so it is never tried more than once an hour.
+- **Information page (ⓘ):** only when you open it, at most once an hour, `curl --proto =https --max-redirs 0` to the marketplace's catalog `https://raw.githubusercontent.com/omacom/omarchy-plugin-marketplace/main/site/catalog.json` (at most 40 MiB and 40 s; with the last `ETag`, so an unchanged catalog is not downloaded again). Only the author's own entries (repositories under `github.com/ubruckhaus` or `github.com/maprisma`, at most 60) are kept, as id, name, version, description text and the marketplace's verified flag, with the time of the last check and the `ETag`, in `~/.cache/applauncher/plugin-catalog.json` (written atomically). Offline, the cached list or the built-in one is shown. A failed attempt counts as well, so it is never tried more than once an hour.
 - **Change icon…:** only when you search, `curl --proto =https --max-redirs 0` to `cdn.jsdelivr.net`: the three collections' name lists (at most 4 MiB each, cached in `~/.cache/applauncher/icon-index/` and fetched again after a week) and icon files (at most 1 MiB, checked like every other icon before it is shown).
 
 ## Changes in 1.9.2
