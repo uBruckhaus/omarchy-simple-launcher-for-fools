@@ -68,6 +68,23 @@ class CatalogTests(unittest.TestCase):
                 pc.refresh(fetch, self.cache, now=now)
         self.assertEqual(asked, [])
 
+    def test_failed_save_after_the_full_read(self):
+        self.cache.write_text(json.dumps({"checked": 1000, "plugins": [{"id": "ubruckhaus.x", "name": "X"}]}))
+        asked = []
+
+        def fetch(etag):
+            asked.append(etag)
+            return answer(200, json.dumps(CATALOG).encode())
+        later = 1000 + pc.MAX_AGE + 1
+        with mock.patch.object(pc, "_save", side_effect=OSError("disk full")):
+            self.assertEqual(len(pc.refresh(fetch, self.cache, now=later)), 2)
+            pc.refresh(fetch, self.cache, now=later + 10)            # same process: no second request
+            self.assertEqual(asked, [""])
+            pc._ATTEMPTS.clear()                                      # a new App Manager start may ask once,
+            pc.refresh(fetch, self.cache, now=later + 20)            # as the README says
+            pc.refresh(fetch, self.cache, now=later + 30)
+        self.assertEqual(asked, ["", ""])
+
     def test_migration_keeps_both_owners(self):
         self.cache.write_text(json.dumps({"checked": 1000, "plugins": [{"id": "ubruckhaus.x", "name": "X"}]}))
         catalog = {"plugins": CATALOG["plugins"] + [
