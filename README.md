@@ -32,7 +32,7 @@ Open an app's menu (`☰`, `→`) → **Shortcut…**, or press `Ctrl+K`.
 
 ## Changes in 2.4.2
 
-**Information page.** The cards also list the author's plugins kept in the author's GitHub organization (Maprisma Launcher in `github.com/maprisma`). A cached list from before is read again once.
+**Information page.** The cards also list the author's plugins kept in the author's GitHub organization (Maprisma Launcher in `github.com/maprisma`). A cached list from before is read again in full at its next hourly check.
 
 ## Changes in 2.4.1
 

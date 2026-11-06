@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import plugin_catalog as pc
@@ -40,7 +41,7 @@ class CatalogTests(unittest.TestCase):
             {"id": "ubruckhaus.fake", "name": "Fake", "repo": "https://github.com/maprisma-fake/x"}]}
         self.assertEqual([p["id"] for p in pc.parse(catalog)], ["ubruckhaus.maprisma-launcher"])
 
-    def test_list_kept_under_the_old_owner_rule_is_read_again_in_full(self):
+    def test_list_kept_under_the_old_owner_rule_is_read_in_full_at_the_next_hour(self):
         self.cache.write_text(json.dumps({"checked": 1000, "etag": '"old"',
                                           "plugins": [{"id": "ubruckhaus.x", "name": "X"}]}))
         asked = []
@@ -48,49 +49,31 @@ class CatalogTests(unittest.TestCase):
         def fetch(etag):
             asked.append(etag)
             return answer(200, json.dumps(CATALOG).encode())
-        self.assertEqual(len(pc.refresh(fetch, self.cache, now=1500)), 2)     # within the hour, still read
+        self.assertEqual([p["id"] for p in pc.refresh(fetch, self.cache, now=1500)], ["ubruckhaus.x"])  # within the hour
+        self.assertEqual(asked, [])
+        self.assertEqual(len(pc.refresh(fetch, self.cache, now=1000 + pc.MAX_AGE + 1)), 2)
         self.assertEqual(asked, [""])                                                   # without the old ETag
         self.assertEqual(json.loads(self.cache.read_text())["owners"], pc.OWNERS)
-        pc._ATTEMPTS.clear()
-        pc.refresh(fetch, self.cache, now=1600)
-        self.assertEqual(asked, [""])                                                   # now current: hourly again
 
-    def test_old_list_offline_is_kept_and_retried_hourly(self):
+    def test_old_list_with_a_failed_save_still_waits_for_the_hour(self):
         self.cache.write_text(json.dumps({"checked": 1000, "plugins": [{"id": "ubruckhaus.x", "name": "X"}]}))
         asked = []
 
-        def offline(etag):
+        def fetch(etag):
             asked.append(etag)
-            raise OSError("no network")
-        self.assertEqual([p["id"] for p in pc.refresh(offline, self.cache, now=1500)], ["ubruckhaus.x"])
-        pc._ATTEMPTS.clear()
-        pc.refresh(offline, self.cache, now=1600)
-        self.assertEqual(len(asked), 1)
-
-    def test_old_list_in_an_unwritable_cache_waits_for_the_hour(self):
-        self.cache.write_text(json.dumps({"checked": 1000, "plugins": [{"id": "ubruckhaus.x", "name": "X"}]}))
-        asked = []
-
-        def offline(etag):
-            asked.append(etag)
-            raise OSError("no network")
-        os.chmod(self.cache, 0o400)
-        os.chmod(self.tmp.name, 0o500)
-        self.addCleanup(os.chmod, self.tmp.name, 0o700)
-        for now in (1500, 1600, 1700):                  # each a new App Manager process
-            pc._ATTEMPTS.clear()
-            self.assertEqual([p["id"] for p in pc.refresh(offline, self.cache, now=now)], ["ubruckhaus.x"])
+            return answer(200, json.dumps(CATALOG).encode())
+        with mock.patch.object(pc, "_save", side_effect=OSError("disk full")):
+            for now in (1500, 1600, 1700):                # each a new App Manager process
+                pc._ATTEMPTS.clear()
+                pc.refresh(fetch, self.cache, now=now)
         self.assertEqual(asked, [])
-        pc._ATTEMPTS.clear()
-        pc.refresh(offline, self.cache, now=1000 + pc.MAX_AGE + 1)
-        self.assertEqual(len(asked), 1)                  # after the hour as before
 
     def test_migration_keeps_both_owners(self):
         self.cache.write_text(json.dumps({"checked": 1000, "plugins": [{"id": "ubruckhaus.x", "name": "X"}]}))
         catalog = {"plugins": CATALOG["plugins"] + [
             {"id": "ubruckhaus.maprisma-launcher", "name": "Maprisma Launcher",
              "repo": "https://github.com/maprisma/omarchy-maprisma-launcher"}]}
-        found = pc.refresh(lambda e: answer(200, json.dumps(catalog).encode()), self.cache, now=1500)
+        found = pc.refresh(lambda e: answer(200, json.dumps(catalog).encode()), self.cache, now=1000 + pc.MAX_AGE + 1)
         self.assertEqual([p["id"] for p in found], ["ubruckhaus.wlan-monitor", "ubruckhaus.new-thing",
                                                     "ubruckhaus.maprisma-launcher"])
 

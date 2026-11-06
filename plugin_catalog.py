@@ -175,14 +175,6 @@ def fetch(etag: str = "") -> bytes:
     return out
 
 
-def _writable(path: Path) -> bool:
-    """Whether the cache could be saved: its folder (or the nearest existing parent) and the file are writable."""
-    folder = path.parent
-    while not folder.exists() and folder != folder.parent:
-        folder = folder.parent
-    return folder.is_dir() and os.access(folder, os.W_OK) and (not path.exists() or os.access(path, os.W_OK))
-
-
 def refresh(fetch=fetch, path: Path = CACHE, now: float | None = None) -> list:
     """The author's plugins, read again when the last attempt is older than MAX_AGE (blocking: on a
     thread). A failed attempt counts too, so offline or on errors it is tried at most once an hour;
@@ -190,11 +182,9 @@ def refresh(fetch=fetch, path: Path = CACHE, now: float | None = None) -> list:
     now = time.time() if now is None else now
     cached = load(path)
     plugins = cached.get("plugins", [])
-    # A list kept under other owners is read again in full, but only when that attempt can be saved:
-    # otherwise every new App Manager process would ask again within the hour.
+    # A list kept under other owners is read again in full (without its ETag) at its next hourly read.
     current = cached.get("owners") == OWNERS
-    checked = cached.get("checked", 0) if current or not _writable(path) else 0   # failed attempts still count
-    last = max(checked, cached.get("tried", 0), _ATTEMPTS.get(str(path), 0))
+    last = max(cached.get("checked", 0), cached.get("tried", 0), _ATTEMPTS.get(str(path), 0))
     if last and 0 <= now - last < MAX_AGE:
         return plugins
     _ATTEMPTS[str(path)] = now
