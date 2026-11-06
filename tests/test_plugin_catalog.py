@@ -67,6 +67,33 @@ class CatalogTests(unittest.TestCase):
         pc.refresh(offline, self.cache, now=1600)
         self.assertEqual(len(asked), 1)
 
+    def test_old_list_in_an_unwritable_cache_waits_for_the_hour(self):
+        self.cache.write_text(json.dumps({"checked": 1000, "plugins": [{"id": "ubruckhaus.x", "name": "X"}]}))
+        asked = []
+
+        def offline(etag):
+            asked.append(etag)
+            raise OSError("no network")
+        os.chmod(self.cache, 0o400)
+        os.chmod(self.tmp.name, 0o500)
+        self.addCleanup(os.chmod, self.tmp.name, 0o700)
+        for now in (1500, 1600, 1700):                  # each a new App Manager process
+            pc._ATTEMPTS.clear()
+            self.assertEqual([p["id"] for p in pc.refresh(offline, self.cache, now=now)], ["ubruckhaus.x"])
+        self.assertEqual(asked, [])
+        pc._ATTEMPTS.clear()
+        pc.refresh(offline, self.cache, now=1000 + pc.MAX_AGE + 1)
+        self.assertEqual(len(asked), 1)                  # after the hour as before
+
+    def test_migration_keeps_both_owners(self):
+        self.cache.write_text(json.dumps({"checked": 1000, "plugins": [{"id": "ubruckhaus.x", "name": "X"}]}))
+        catalog = {"plugins": CATALOG["plugins"] + [
+            {"id": "ubruckhaus.maprisma-launcher", "name": "Maprisma Launcher",
+             "repo": "https://github.com/maprisma/omarchy-maprisma-launcher"}]}
+        found = pc.refresh(lambda e: answer(200, json.dumps(catalog).encode()), self.cache, now=1500)
+        self.assertEqual([p["id"] for p in found], ["ubruckhaus.wlan-monitor", "ubruckhaus.new-thing",
+                                                    "ubruckhaus.maprisma-launcher"])
+
     def test_read_then_not_changed_then_offline(self):
         asked = []
 
