@@ -13,6 +13,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import screenshots  # noqa: E402
 
 
+_HOME = None
+
+
+def setUpModule():
+    """No test may ever write into the real home: Path.home() is a scratch folder."""
+    global _HOME
+    _HOME = TemporaryDirectory()
+    home = Path(_HOME.name) / "home"
+    home.mkdir(mode=0o700)
+    setUpModule.patch = patch.object(screenshots.Path, "home", return_value=home)
+    setUpModule.patch.start()
+
+
+def tearDownModule():
+    setUpModule.patch.stop()
+    _HOME.cleanup()
+
+
 def fake_grim(data=b"PNG-DATA-0123456789"):
     def run(argv, **_kwargs):
         Path(argv[-1]).write_bytes(data)
@@ -101,6 +119,87 @@ class HostileFolderTests(TestCase):
                 with self.assertRaises(FileNotFoundError):
                     screenshots.capture((0, 0, 10, 10), Path(tmp) / "elsewhere" / "Shots")
             self.assertFalse((Path(tmp) / "elsewhere").exists())
+
+    def test_pictures_link_into_a_folder_others_can_change_is_refused(self):
+        with TemporaryDirectory() as tmp:
+            home, shared = Path(tmp) / "home", Path(tmp) / "shared"
+            home.mkdir(mode=0o700)
+            shared.mkdir()
+            shared.chmod(0o777)                       # not sticky: others could plant links here
+            (home / "Pictures").symlink_to(shared)
+            with patch.object(screenshots.Path, "home", return_value=home), \
+                    patch.object(screenshots.subprocess, "run", side_effect=fake_grim()) as grim:
+                with self.assertRaises(ValueError):
+                    screenshots.capture((0, 0, 10, 10))
+                with self.assertRaises(ValueError):
+                    screenshots.capture_to_settings((0, 0, 10, 10), {})
+                self.assertEqual(screenshots._creatable_roots(), (Path(os.path.realpath(home)),))
+            grim.assert_not_called()
+            self.assertEqual(list(shared.iterdir()), [])
+
+    def test_appmanager_link_planted_under_pictures_is_not_followed(self):
+        with TemporaryDirectory() as tmp:
+            home, disk, victim = Path(tmp) / "home", Path(tmp) / "disk", Path(tmp) / "victim"
+            home.mkdir(mode=0o700)
+            disk.mkdir(mode=0o700)
+            victim.mkdir(mode=0o700)
+            (home / "Pictures").symlink_to(disk)
+            (disk / "AppManager").symlink_to(victim)
+            with patch.object(screenshots.Path, "home", return_value=home), \
+                    patch.object(screenshots.subprocess, "run", side_effect=fake_grim()) as grim:
+                with self.assertRaises(OSError):
+                    screenshots.capture((0, 0, 10, 10))
+            grim.assert_not_called()
+            self.assertEqual(list(victim.iterdir()), [])
+
+    def test_closed_chain(self):
+        with TemporaryDirectory() as tmp:
+            ok = Path(os.path.realpath(tmp)) / "ok"
+            ok.mkdir(mode=0o700)
+            self.assertTrue(screenshots._closed_chain(ok))     # /tmp: root's and sticky
+            open_dir = ok / "open"
+            open_dir.mkdir()
+            open_dir.chmod(0o775)                              # the group may change it
+            self.assertFalse(screenshots._closed_chain(open_dir))
+            self.assertFalse(screenshots._closed_chain(ok / "missing"))
+
+    def test_cut_off_picture_never_gets_its_name_even_if_cleanup_fails(self):
+        with TemporaryDirectory() as tmp, \
+                patch.object(screenshots.subprocess, "run", side_effect=fake_grim()), \
+                patch.object(screenshots.os, "fsync", side_effect=OSError("disk full")), \
+                patch.object(screenshots.os, "unlink", side_effect=OSError("cannot remove")):
+            with self.assertRaises(OSError):
+                screenshots.capture((0, 0, 10, 10), Path(tmp), datetime(2026, 11, 10, 9, 0, 0))
+            left = [p.name for p in Path(tmp).iterdir()]
+            self.assertFalse([n for n in left if not n.startswith(".app-manager-") or not n.endswith(".part")], left)
+            self.assertFalse((Path(tmp) / "app-manager-2026-11-10-09-00-00.png").exists())
+
+    def test_picture_gets_its_name_only_when_complete_and_never_replaces(self):
+        with TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            now = datetime(2026, 11, 10, 9, 0, 0)
+            (folder / "app-manager-2026-11-10-09-00-00.png").write_bytes(b"old")
+            with patch.object(screenshots.subprocess, "run", side_effect=fake_grim(b"new")):
+                path = screenshots.capture((0, 0, 10, 10), folder, now)
+            self.assertEqual(path.name, "app-manager-2026-11-10-09-00-00-2.png")
+            self.assertEqual((folder / "app-manager-2026-11-10-09-00-00.png").read_bytes(), b"old")
+            self.assertEqual(path.stat().st_nlink, 1)              # the temporary name is gone
+            self.assertEqual(sorted(p.name for p in folder.iterdir()),
+                             ["app-manager-2026-11-10-09-00-00-2.png", "app-manager-2026-11-10-09-00-00.png"])
+
+    def test_note_never_replaces_or_follows_and_fails_without_its_name(self):
+        with TemporaryDirectory() as tmp:
+            folder, victim = Path(tmp), Path(tmp) / "victim"
+            victim.write_text("keep")
+            (folder / "a.txt").symlink_to(victim)
+            with self.assertRaises(FileExistsError):
+                screenshots.save_note(folder / "a.png", "note")
+            self.assertEqual(victim.read_text(), "keep")
+            with patch.object(screenshots.os, "fsync", side_effect=OSError("disk full")), \
+                    patch.object(screenshots.os, "unlink", side_effect=OSError("cannot remove")):
+                with self.assertRaises(OSError):
+                    screenshots.save_note(folder / "b.png", "note")
+            self.assertFalse((folder / "b.txt").exists())
 
     def test_default_folder_behind_your_own_link_still_works(self):
         with TemporaryDirectory() as tmp:

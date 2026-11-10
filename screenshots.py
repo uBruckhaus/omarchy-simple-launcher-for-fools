@@ -2,11 +2,12 @@
 
 Ported from Theme Manager: grim writes into a new private folder, the
 finished picture is then copied into the chosen folder through a handle on
-that folder (created exclusively, private, never following a link). Nothing
+that folder (private, no link followed, named only once complete). Nothing
 is sent anywhere; a file is only written when F12 is pressed."""
 from __future__ import annotations
 
 import os
+import secrets
 import stat
 import subprocess
 import tempfile
@@ -77,20 +78,67 @@ def layer_origin(layers, namespace: str = NAMESPACE, pid: int | None = None):
 _DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 
 
+def _closed_chain(target: Path) -> bool:
+    """Every folder from / down to `target` (a resolved path, no links) is
+    yours or root's, and no other account can change it: not writable by
+    group or others, except a root-owned sticky folder like /tmp (others
+    cannot rename or remove what is yours there)."""
+    current = Path("/")
+    for part in (Path("/"),) + tuple(Path(p) for p in target.parts[1:]):
+        current = current / part if part != Path("/") else current
+        try:
+            info = current.lstat()
+        except OSError:
+            return False
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+            return False
+        if info.st_uid not in (0, os.getuid()):
+            return False
+        if info.st_mode & 0o022 and not (info.st_uid == 0 and info.st_mode & stat.S_ISVTX):
+            return False
+    return True
+
+
+def _pictures() -> Path:
+    """~/Pictures as a path without links. Only your own ~/Pictures link is
+    followed (Pictures on another disk), and only when its target and every
+    folder down to it are closed to other accounts; AppManager below it is
+    then reached without following any link."""
+    home = Path(os.path.realpath(Path.home()))
+    pictures = home / "Pictures"
+    try:
+        info = pictures.lstat()
+    except FileNotFoundError:
+        return pictures                       # made (0700) by the walk
+    if not stat.S_ISLNK(info.st_mode):
+        return pictures
+    if info.st_uid != os.getuid():
+        raise ValueError("~/Pictures is a link that is not yours")
+    target = Path(os.path.realpath(pictures))
+    if not _closed_chain(target):
+        raise ValueError("~/Pictures points to a folder other accounts can change")
+    return target
+
+
 def _destination(folder: Path | None) -> Path:
-    """The folder to walk. The default one may sit behind links you made
-    yourself (~/Pictures on another disk): it is resolved once here. A custom
-    folder is used as given (valid_folder_setting already refused links)."""
-    if folder is None or folder == default_folder():
-        return Path(os.path.realpath(default_folder()))
+    """The folder to walk: the default one under _pictures(); a custom folder
+    as given (valid_folder_setting already refused links in it)."""
+    default = default_folder()
+    if folder is None or folder == default:
+        if default.parent == Path.home() / "Pictures":
+            return _pictures() / default.name
+        return default
     return folder
 
 
 def _creatable_roots() -> tuple:
     """Where missing folders may be made: inside your home, and inside the
-    real place of ~/Pictures when that is a link of yours to another disk."""
-    home = Path.home()
-    return (Path(os.path.realpath(home)), Path(os.path.realpath(home / "Pictures")))
+    checked target of your own ~/Pictures link."""
+    home = Path(os.path.realpath(Path.home()))
+    try:
+        return (home, _pictures())
+    except ValueError:
+        return (home,)
 
 
 def open_folder(folder: Path, create: bool = False) -> int:
@@ -139,6 +187,43 @@ def _write_all(fd: int, data: bytes):
         view = view[written:]
 
 
+def _publish(dir_fd: int, fill, names) -> str:
+    """Write a new file in the checked folder and give it the first free name
+    of `names`. It is written and synced under a temporary hidden name
+    (exclusive, 0600, no link followed) and only then hard-linked to its name
+    (link never replaces an existing file); the temporary name is removed
+    afterwards and on any failure. A cut-off file can so never carry a final
+    name, even if removing it fails. FileExistsError: every name was taken."""
+    for _attempt in range(100):
+        temporary = f".app-manager-{secrets.token_hex(8)}.part"
+        try:
+            fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                         0o600, dir_fd=dir_fd)
+            break
+        except FileExistsError:
+            continue
+    else:
+        raise OSError("no free temporary name")
+    try:
+        try:
+            fill(fd)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        for name in names:
+            try:
+                os.link(temporary, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd, follow_symlinks=False)
+                return name
+            except FileExistsError:
+                continue
+        raise FileExistsError("no free name")
+    finally:
+        try:
+            os.unlink(temporary, dir_fd=dir_fd)
+        except OSError:
+            pass
+
+
 def _private_dir() -> str:
     runtime = os.environ.get("XDG_RUNTIME_DIR")
     base = runtime if runtime and os.path.isdir(runtime) else None
@@ -156,9 +241,9 @@ def _taken(dir_fd: int, name: str) -> bool:
 def capture(geometry: tuple[int, int, int, int], folder: Path | None = None,
             now: datetime | None = None) -> Path:
     """Save one PNG of the screen rectangle `geometry` (x, y, width, height).
-    The folder must be yours and closed to others; the name is created
-    exclusively, never follows a link and never takes the name of an
-    existing picture or note."""
+    The folder must be yours and closed to others and is reached without
+    following any link; the picture gets its name only when complete
+    (_publish), never replacing an existing picture or taking a note's name."""
     if not isinstance(geometry, (tuple, list)) or len(geometry) != 4 or \
             not all(isinstance(v, int) and not isinstance(v, bool) for v in geometry):
         raise ValueError("invalid screenshot geometry")
@@ -182,24 +267,17 @@ def capture(geometry: tuple[int, int, int, int], folder: Path | None = None,
                 if size == 0 or size > MAX_SHOT:
                     raise OSError("grim produced no usable screenshot")
                 stamp = (now or datetime.now()).strftime("%Y-%m-%d-%H-%M-%S")
-                stem, suffix = f"app-manager-{stamp}", 1
-                while True:
-                    name = f"{stem}.png" if suffix == 1 else f"{stem}-{suffix}.png"
-                    suffix += 1
-                    if suffix > 10000:
-                        raise OSError("no free screenshot name")
-                    if _taken(dir_fd, name[:-4] + ".txt"):
-                        continue
-                    try:
-                        target = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
-                                         | os.O_CLOEXEC, 0o600, dir_fd=dir_fd)
-                        break
-                    except FileExistsError:
-                        continue
-                # Every byte written (short writes continued), the whole picture
-                # or nothing: on any failure the new file is removed again, so
-                # no cut-off picture is left or reported as saved.
-                try:
+                stem = f"app-manager-{stamp}"
+
+                def names():
+                    for suffix in range(1, 10000):
+                        name = f"{stem}.png" if suffix == 1 else f"{stem}-{suffix}.png"
+                        if not _taken(dir_fd, name[:-4] + ".txt"):
+                            yield name
+
+                def fill(target):
+                    # Every byte written (short writes continued): the whole
+                    # picture, or it never gets its name.
                     copied = 0
                     while copied < size:
                         chunk = os.read(source, min(1024 * 1024, size - copied))
@@ -209,19 +287,7 @@ def capture(geometry: tuple[int, int, int, int], folder: Path | None = None,
                         copied += len(chunk)
                     if os.read(source, 1):
                         raise OSError("the screenshot changed while it was copied")
-                    os.fsync(target)
-                except BaseException:
-                    os.close(target)
-                    target = None
-                    try:
-                        os.unlink(name, dir_fd=dir_fd)
-                    except OSError:
-                        pass
-                    raise
-                finally:
-                    if target is not None:
-                        os.close(target)
-                return folder / name
+                return folder / _publish(dir_fd, fill, names())
             finally:
                 os.close(source)
         finally:
@@ -257,22 +323,8 @@ def save_note(picture: Path, note: str) -> Path | None:
     # and removed again if it cannot be written in full.
     dir_fd = open_folder(path.parent)            # the same walk: no link on the way
     try:
-        fd = os.open(path.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
-                     0o600, dir_fd=dir_fd)
-        try:
-            _write_all(fd, (note + "\n").encode("utf-8"))
-            os.fsync(fd)
-        except BaseException:
-            os.close(fd)
-            fd = None
-            try:
-                os.unlink(path.name, dir_fd=dir_fd)
-            except OSError:
-                pass
-            raise
-        finally:
-            if fd is not None:
-                os.close(fd)
+        data = (note + "\n").encode("utf-8")
+        _publish(dir_fd, lambda fd: _write_all(fd, data), [path.name])
     finally:
         os.close(dir_fd)
     return path
