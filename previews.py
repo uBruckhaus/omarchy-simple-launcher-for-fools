@@ -308,6 +308,8 @@ class LayoutSketch(Sketch):
         layout, view_buttons, radius = self.state()
         # The sketch is about half size: the card's corners, then the folders' and cards'.
         card_r, tile_r, dot_r = radius / 2, radius / 3, min(2, radius / 4)
+        # Icons and chips: the setting's small size and its pills (square with Square).
+        icon_r, chip_r = min(2, radius), (3 if radius else 0)
         t = self.loop_time()
         grow = ease((t - 2.0) / 0.8) if t < 4.8 else 1.0 - ease((t - 5.2) / 0.6)
         small_w, wide_w = min(110.0, width * 0.32), width - 16
@@ -342,7 +344,7 @@ class LayoutSketch(Sketch):
             alpha = 1 - grow * 2
             for row in range(7):
                 ry = top + row * 12
-                rounded(cr, x + 8, ry, 8, 8, 2)
+                rounded(cr, x + 8, ry, 8, 8, icon_r)
                 cr.set_source_rgba(*rgba(colours[row % len(colours)], alpha))
                 cr.fill()
                 cr.rectangle(x + 20, ry + 2, min(inner_w - 16, 40 + (row * 13) % 30), 3)
@@ -360,7 +362,7 @@ class LayoutSketch(Sketch):
                     cr.set_source_rgba(*rgba(c["foreground"], 0.08 * alpha))
                     cr.fill()
                     for j in range(9 - (i * 2) % 5):
-                        rounded(cr, tx + 3 + (j % 3) * 9, ty + 3 + (j // 3) * 9, 6, 6, 2)
+                        rounded(cr, tx + 3 + (j % 3) * 9, ty + 3 + (j // 3) * 9, 6, 6, icon_r)
                         cr.set_source_rgba(*rgba(colours[(i + j) % len(colours)], alpha))
                         cr.fill()
                     cr.rectangle(tx + 8, ty + tile + 3, tile - 16, 3)
@@ -375,7 +377,7 @@ class LayoutSketch(Sketch):
                     rounded(cr, tx, ty, tile_w, tile_h, tile_r)
                     cr.set_source_rgba(*rgba(c["foreground"], 0.08 * alpha))
                     cr.fill()
-                    rounded(cr, tx + 5, ty + 5, 11, 11, 3)
+                    rounded(cr, tx + 5, ty + 5, 11, 11, min(3, radius))
                     cr.set_source_rgba(*rgba(colours[i % len(colours)], alpha))
                     cr.fill()
                     cr.rectangle(tx + 5, ty + 21, tile_w - 14, 3)
@@ -383,7 +385,7 @@ class LayoutSketch(Sketch):
                     cr.fill()
             # The group bar along the bottom of the wide popup.
             for i in range(6):
-                rounded(cr, x + 8 + i * 22, y + card_h - 10, 18, 6, 3)
+                rounded(cr, x + 8 + i * 22, y + card_h - 10, 18, 6, chip_r)
                 cr.set_source_rgba(*rgba(c["accent"] if i == 0 else c["foreground"], (0.8 if i == 0 else 0.3) * alpha))
                 cr.fill()
         cr.restore()

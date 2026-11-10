@@ -65,7 +65,7 @@ from launcher_core import (
     saved_size, set_saved_size, saved_position, set_saved_position,
     plugin_manifests, set_admin_action, forget_saved_admin_action, clipboard_text, launch_action, launch_app, launch_as_admin, launch_floating, launch_on_workspace, floating_argv, load_hidden_apps, open_plugin, parse_desktop_files, parse_plugins,
     plugin_removal_note, save_hidden_apps, set_in_bar, BAR_SECTIONS, USER_PLUGINS_DIR,
-    icon_bytes, icon_file_for,
+    icon_bytes, icon_file_for, screenshot_settings, set_screenshot_setting,
 )
 from palette import ThemePalette
 from key_colors import key_owner_colors
@@ -84,6 +84,7 @@ import updates
 import newapps
 import icons
 import corners
+import screenshots
 import dock_core
 import previews
 import tempfile
@@ -569,6 +570,7 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         grip.set_visible(POPUP)
         frame.add_overlay(grip)
         if POPUP:
+            frame.add_overlay(self.build_screenshot_dialog())  # After F12: where it went, a note.
             overlay.add_overlay(frame)
         else:
             overlay.set_child(frame)  # Its size is the window's: the window manager sizes both.
@@ -1483,20 +1485,21 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
     def corner_labels(self):
         rounding = getattr(self, "window_rounding", None)
         like = _("Like windows ({0} px)").format(rounding) if rounding is not None else _("Like windows")
-        return [like, _("Rounded"), _("Square")]
+        return [like, _("Slightly rounded ({0} px)").format(corners.SLIGHT),
+                _("Rounded ({0} px)").format(corners.ROUNDED), _("Square")]
 
     def corners_tip(self):
         """Where the windows' rounding comes from: the theme, looknfeel.lua or Omarchy."""
         source = desktop.rounding_source()
         if source == "desktop":
-            return _("Corners of the window, its folders and cards. “Like windows” follows the desktop's rounded corners.")
+            return _("Corners of the window, its folders and cards and every control (buttons, choice boxes, fields, switches). “Like windows” follows the desktop's rounded corners.")
         if source == "user":
             origin = _("Your windows' rounding is set in ~/.config/hypr/looknfeel.lua.")
         elif source == "theme":
             origin = _("Your windows' rounding is set by the current theme (its hyprland.lua).")
         else:
             origin = _("Your windows use Omarchy's default rounding (square); a theme or ~/.config/hypr/looknfeel.lua can change it.")
-        return _("Corners of the popup, its folders and cards, and the dock. “Like windows” follows Hyprland's window rounding.") + " " + origin
+        return _("Corners of the popup, its folders and cards, every control (buttons, choice boxes, fields, switches) and the dock. “Like windows” follows Hyprland's window rounding.") + " " + origin
 
     def set_corners(self, value):
         try:
@@ -2192,12 +2195,17 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
                 return 0.5
 
         # Corners: Hyprland's window rounding like the Omarchy shell (the
-        # default), or rounded / square whatever the windows do.
+        # default), or slightly rounded / rounded / square whatever the windows do.
         self.window_rounding = hyprland_rounding()
         radius = corners.radius(saved_corners(), self.window_rounding)
         # For the settings previews (drawn every frame: no file reads there).
         self.corner_radius = radius
         self.dock_corner_radius = radius or corners.ROUNDED
+        # One Corners setting for every control, in three sizes as in AI
+        # Playground: cards, the popup, pop-ups, dialogs and lists (radius);
+        # buttons, drop-downs and fields (control); check boxes, tracks, small
+        # badges and swatches (small). Pills stay round unless Square.
+        radius, control, small, pill = corners.sizes(radius)
         sel_hex = colors.get("selection", "#45475a")
         bg_hex = colors.get("background", "#1e1e2e")
         fg_hex = colors.get("foreground", "#cdd6f4")
@@ -2248,7 +2256,7 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
             background: transparent;
             border: none;
             box-shadow: none;
-            border-radius: {radius}px;
+            border-radius: {control}px;
             padding: 4px;
             min-width: 0;
             min-height: 0;
@@ -2289,8 +2297,8 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
             border-color: {colors['accent']};
         }}
         .launcher-back-btn {{ padding: 2px 6px; }}
-        .launcher-back-bordered {{ border: 1px solid alpha({colors['foreground']}, 0.35); border-radius: {radius}px; padding: 4px 10px; }}
-        .launcher-card button.launcher-gear-btn {{ border: 1px solid alpha({colors['foreground']}, 0.35); border-radius: {radius}px;
+        .launcher-back-bordered {{ border: 1px solid alpha({colors['foreground']}, 0.35); border-radius: {control}px; padding: 4px 10px; }}
+        .launcher-card button.launcher-gear-btn {{ border: 1px solid alpha({colors['foreground']}, 0.35); border-radius: {control}px;
             padding: 1px 6px; margin-right: 0; }}
         .launcher-gear {{ font-family: "JetBrainsMono Nerd Font", "Symbols Nerd Font", monospace; font-size: 13px; }}
         .launcher-section-title {{ font-size: 11px; font-weight: 700; letter-spacing: 1px; }}
@@ -2301,21 +2309,21 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         .launcher-card label.launcher-setting-label {{ font-size: 13px; color: alpha({colors['foreground']}, 0.88); }}
         .launcher-settings-card label.launcher-settings-hint {{ font-size: 12px; color: alpha({colors['foreground']}, 0.65); }}
         dropdown.launcher-compact-dropdown > button {{ min-height: 0; padding: 2px 8px; font-size: 12px;
-            border: 1px solid alpha({colors['foreground']}, 0.35); border-radius: {radius}px; background: transparent; }}
+            border: 1px solid alpha({colors['foreground']}, 0.35); border-radius: {control}px; background: transparent; }}
         dropdown.launcher-compact-dropdown popover label {{ font-size: 12px; }}
         /* Clearly visible on the dark card: a light track and knob when off,
            the accent when on; only a switch that cannot be used is faded. */
-        switch.launcher-compact-switch {{ min-height: 16px; min-width: 36px;
+        switch.launcher-compact-switch {{ min-height: 16px; min-width: 36px; border-radius: {pill}px;
             background: alpha({colors['foreground']}, 0.22); border: 1px solid alpha({colors['foreground']}, 0.45); }}
         switch.launcher-compact-switch:checked {{ background: {colors['accent']}; border-color: {colors['accent']}; }}
-        switch.launcher-compact-switch slider {{ min-width: 14px; min-height: 14px; margin: 1px;
+        switch.launcher-compact-switch slider {{ min-width: 14px; min-height: 14px; margin: 1px; border-radius: {pill}px;
             background: {colors['foreground']}; border: none; box-shadow: none; }}
         switch.launcher-compact-switch:checked slider {{ background: {colors['background']}; }}
         switch.launcher-compact-switch:disabled {{ opacity: 0.4; }}
         .launcher-menu-item {{
             outline: none;
             background: transparent;
-            border-radius: {radius}px;
+            border-radius: {control}px;
             padding: 0;
             color: #ffffff;
         }}
@@ -2368,7 +2376,7 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         .launcher-hidden-badge {{
             background: rgba(188, 183, 176, 0.12);
             border: 1px solid rgba(188, 183, 176, 0.3);
-            border-radius: {radius}px;
+            border-radius: {small}px;
             padding: 1px 5px;
         }}
         .launcher-hidden-badge label {{
@@ -2400,13 +2408,17 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         .launcher-group-title {{ font-size: 14px; font-weight: 700; }}
         .launcher-group-count {{
             font-size: 11px; font-weight: 600; color: {dim_hex};
-            border: 1px solid alpha({colors['foreground']}, 0.25); border-radius: 9px; padding: 0 6px;
+            border: 1px solid alpha({colors['foreground']}, 0.25); border-radius: {pill}px; padding: 0 6px;
         }}
         .launcher-group-chevron {{ color: {colors['accent']}; }}
         .launcher-view-switch {{
-            border: 1px solid alpha({colors['foreground']}, 0.25); border-radius: {radius}px; margin-right: 4px;
+            border: 1px solid alpha({colors['foreground']}, 0.25); border-radius: {control}px; margin-right: 4px;
         }}
+        /* Segmented joints: the parts inside the switch stay square on purpose,
+           the outer ends take the switch's corners. */
         .launcher-view-switch button.launcher-header-btn {{ margin-right: 0; border-radius: 0; }}
+        .launcher-view-switch > button:first-child {{ border-radius: {control}px 0 0 {control}px; }}
+        .launcher-view-switch > button:last-child {{ border-radius: 0 {control}px {control}px 0; }}
         .launcher-view-switch button.launcher-toggle-active {{ background: alpha({colors['accent']}, 0.35); }}
         .launcher-card button.launcher-group-menu {{ padding: 2px; min-width: 0; min-height: 0; }}
         .launcher-group-error {{ color: {colors['red']}; font-size: 12px; }}
@@ -2415,7 +2427,7 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         .launcher-card button.launcher-copy-btn {{ padding: 1px; min-width: 0; min-height: 0; }}
         .launcher-toggle-active {{
             background: rgba(147, 147, 195, 0.25);
-            border-radius: {radius}px;
+            border-radius: {control}px;
         }}
         /* Resize grip in the card's corner. */
         .launcher-grip {{ color: {muted_hex}; margin: 4px; opacity: 0.6; }}
@@ -2449,7 +2461,7 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         .launcher-grid flowboxchild.launcher-folder.launcher-folder-drop .launcher-folder-icons {{
             background: alpha({colors['accent']}, 0.30); border-color: {colors['accent']}; border-style: dashed;
         }}
-        .launcher-filter-entry {{ min-height: 30px; border-radius: 999px; padding: 0 10px; font-size: 13px;
+        .launcher-filter-entry {{ min-height: 30px; border-radius: {control}px; padding: 0 10px; font-size: 13px;
             background: alpha({colors['foreground']}, 0.06); border: 1px solid alpha({colors['foreground']}, 0.14); }}
         .launcher-filter-entry:focus-within {{ border-color: {colors['accent']}; }}
         .launcher-grid flowboxchild.launcher-folder:hover .launcher-folder-icons {{ border-color: alpha({colors['accent']}, 0.55); }}
@@ -2457,12 +2469,12 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         .launcher-grid flowboxchild.launcher-folder:selected .launcher-folder-icons {{
             background: alpha({colors['accent']}, 0.16); border-color: {colors['accent']};
         }}
-        .launcher-card button.launcher-folder-app {{ padding: 6px; min-width: 0; min-height: 0; border-radius: {radius}px; }}
+        .launcher-card button.launcher-folder-app {{ padding: 6px; min-width: 0; min-height: 0; border-radius: {control}px; }}
         .launcher-card button.launcher-folder-app:hover {{ background: alpha({colors['foreground']}, 0.10); }}
         .launcher-card .launcher-update-badge {{ border-color: alpha({colors['accent']}, 0.6); }}
         .launcher-update-badge label, .launcher-update-badge image {{ color: {colors['accent']}; }}
         /* Where a dragged group or icon will land: a bar before or after. */
-        .launcher-drop-marker {{ background: {colors['accent']}; border-radius: 999px;
+        .launcher-drop-marker {{ background: {colors['accent']}; border-radius: {pill}px;
             box-shadow: 0 0 6px alpha({colors['accent']}, 0.8); }}
         .launcher-new-star-inline {{ color: {colors['yellow']}; font-size: 12px; }}
         .launcher-legend-text {{ font-size: 13px; }}
@@ -2475,7 +2487,7 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         .launcher-card button.launcher-folder-hidden {{ border: 1px dashed alpha({colors['foreground']}, 0.45); }}
         .launcher-folder-hidden-mark {{
             color: {colors['foreground']}; background: alpha({colors['background']}, 0.9);
-            border-radius: 999px; padding: 2px; margin: -2px;
+            border-radius: {pill}px; padding: 2px; margin: -2px;
         }}
         .launcher-update-dot {{
             min-width: 10px; min-height: 10px; border-radius: 999px;
@@ -2485,9 +2497,11 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         /* Filter bar under the overview. */
         .launcher-filter-bar {{ padding-top: 8px; border-top: 1px solid alpha({colors['foreground']}, 0.12); }}
         .launcher-card button.launcher-filter-mode {{ padding: 3px 12px; min-height: 0; border-radius: 0; font-size: 12px; }}
+        .launcher-card .launcher-view-switch > button.launcher-filter-mode:first-child {{ border-radius: {control}px 0 0 {control}px; }}
+        .launcher-card .launcher-view-switch > button.launcher-filter-mode:last-child {{ border-radius: 0 {control}px {control}px 0; }}
         .launcher-card button.launcher-filter-mode.launcher-toggle-active {{ background: alpha({colors['accent']}, 0.35); font-weight: 600; }}
         .launcher-card button.launcher-filter-chip {{
-            padding: 3px 10px; min-height: 0; font-size: 12px; border-radius: 999px;
+            padding: 3px 10px; min-height: 0; font-size: 12px; border-radius: {pill}px;
             border: 1px solid alpha({colors['foreground']}, 0.18);
         }}
         .launcher-card button.launcher-filter-chip:hover {{ border-color: alpha({colors['accent']}, 0.7); }}
@@ -2514,7 +2528,7 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
             font-size: 10px;
             color: {muted_hex};
             border: 1px solid alpha({muted_hex}, 0.45);
-            border-radius: {radius}px;
+            border-radius: {small}px;
             padding: 0 4px;
         }}
         .launcher-list row:selected > box > box > .launcher-shortcut-chip {{ color: {sel_desc_fg}; border-color: alpha({sel_desc_fg}, 0.5); }}
@@ -2526,7 +2540,7 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
             font-weight: normal; color: {sel_desc_fg}; border-color: alpha({sel_desc_fg}, 0.5);
         }}
         .launcher-shortcut-more {{ font-size: 9px; font-weight: 700; color: {colors['background']};
-            background: alpha({muted_hex}, 0.8); border-radius: 999px; padding: 0 4px; }}
+            background: alpha({muted_hex}, 0.8); border-radius: {pill}px; padding: 0 4px; }}
         .launcher-list row:selected .launcher-shortcut-more {{ background: {sel_desc_fg}; }}
         .sc-item-editing {{ background: alpha({colors['accent']}, 0.14); box-shadow: inset 2px 0 {colors['accent']}; }}
         .sc-section {{ font-size: 11px; font-weight: 600; color: {muted_hex}; margin-top: 4px; }}
@@ -2534,26 +2548,26 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         .sc-keycap {{ font-size: 13px; font-weight: 600; }}
         .sc-note {{ font-size: 11px; color: {muted_hex}; }}
         .sc-empty {{ font-size: 12px; color: {muted_hex}; padding: 4px 2px; }}
-        .sc-mod {{ border-radius: {radius}px; padding: 4px 10px; min-height: 0;
+        .sc-mod {{ border-radius: {control}px; padding: 4px 10px; min-height: 0;
             background: alpha({colors['foreground']}, 0.06); border: 1px solid alpha({colors['foreground']}, 0.12); }}
         .sc-mod:checked {{ background: {colors['accent']}; color: {colors['background']}; border-color: {colors['accent']}; }}
-        .sc-key {{ border-radius: {radius}px; padding: 8px 10px; min-height: 30px;
+        .sc-key {{ border-radius: {control}px; padding: 8px 10px; min-height: 30px;
             background: alpha({colors['foreground']}, 0.04); border: 1px dashed {colors['accent']}; }}
         .sc-status {{ font-size: 12px; border-radius: {radius}px; padding: 6px 8px; }}
         .sc-free {{ color: {colors['green']}; background: alpha({colors['green']}, 0.12); }}
         .sc-warn {{ color: {taken_hex}; background: alpha({taken_hex}, 0.12); }}
         .sc-danger {{ color: {error_hex}; background: alpha({error_hex}, 0.14); }}
         .sc-info {{ color: {muted_hex}; background: alpha({colors['foreground']}, 0.05); }}
-        .sc-suggest {{ font-size: 11px; border-radius: {radius}px; padding: 3px 8px; min-height: 0;
+        .sc-suggest {{ font-size: 11px; border-radius: {control}px; padding: 3px 8px; min-height: 0;
             color: {colors['green']}; border: 1px solid alpha({colors['green']}, 0.5); background: transparent; }}
         .sc-suggest:hover {{ background: alpha({colors['green']}, 0.15); }}
-        .sc-primary {{ background: {colors['accent']}; color: {colors['background']}; border-radius: {radius}px; padding: 4px 14px; }}
+        .sc-primary {{ background: {colors['accent']}; color: {colors['background']}; border-radius: {control}px; padding: 4px 14px; }}
         .sc-primary.sc-warn-btn {{ background: {taken_hex}; color: {colors['background']}; }}
         .sc-primary.sc-danger-btn {{ background: {error_hex}; color: #ffffff; }}
         .sc-primary label, .launcher-card .sc-primary {{ color: {colors['background']}; }}
         .launcher-card .sc-primary.sc-danger-btn {{ color: #ffffff; }}
         .launcher-card .sc-mod:checked {{ color: {colors['background']}; }}
-        .sc-cap {{ font-size: 12px; font-weight: 600; padding: 1px 7px; border-radius: {radius}px;
+        .sc-cap {{ font-size: 12px; font-weight: 600; padding: 1px 7px; border-radius: {small}px;
             border: 1px solid alpha({colors['foreground']}, 0.35); border-bottom-width: 2px;
             background: alpha({colors['foreground']}, 0.06); }}
         .sc-cap-lg {{ font-size: 15px; padding: 3px 10px; }}
@@ -2564,10 +2578,10 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         .sc-divider {{ background-color: alpha({colors['foreground']}, 0.15); min-height: 1px; margin: 4px 0; }}
         .launcher-card .sc-placeholder {{ font-style: italic; font-size: 14px; color: {muted_hex}; margin-left: 4px; }}
         .launcher-card .sc-default label {{ font-size: 11px; color: {muted_hex}; }}
-        .launcher-card .sc-default check {{ border-radius: {radius}px; background: transparent;
+        .launcher-card .sc-default check {{ border-radius: {small}px; background: transparent;
             border: 1px solid {muted_hex}; color: {colors['background']}; }}
         .launcher-card .sc-default check:checked {{ background: {colors['accent']}; border-color: {colors['accent']}; }}
-        .sc-letter {{ font-size: 11px; border-radius: {radius}px; padding: 3px 0; min-height: 0; min-width: 26px;
+        .sc-letter {{ font-size: 11px; border-radius: {control}px; padding: 3px 0; min-height: 0; min-width: 26px;
             background: transparent; border: 1px solid; }}
         .launcher-card button.sc-keychip.sc-free-key, .launcher-card button.sc-keychip.sc-free-key label {{ color: {free_hex}; border-color: alpha({free_hex}, 0.55); }}
         .launcher-card button.sc-keychip.sc-yours-key, .launcher-card button.sc-keychip.sc-yours-key label {{ color: {taken_hex}; border-color: alpha({taken_hex}, 0.6); }}
@@ -2587,7 +2601,7 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         .launcher-menu-item.uninstall label, .launcher-menu-item.uninstall image {{ color: {error_hex}; }}
         .launcher-menu-item.uninstall:focus {{ background: {error_hex}; }}
         .launcher-menu-item.uninstall:focus label, .launcher-menu-item.uninstall:focus image {{ color: #ffffff; }}
-        .sc-other {{ font-size: 11px; border-radius: {radius}px; padding: 3px 8px; min-height: 0;
+        .sc-other {{ font-size: 11px; border-radius: {control}px; padding: 3px 8px; min-height: 0;
             background: alpha({colors['foreground']}, 0.06); border: 1px solid alpha({colors['foreground']}, 0.18); }}
         .launcher-card button.sc-other {{ background: transparent; border: 1px solid; }}
         .sc-suggest-on {{ background: alpha({colors['green']}, 0.25); }}
@@ -2601,9 +2615,33 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         .launcher-card .sc-warn {{ color: {taken_hex}; }}
         .launcher-card .sc-danger {{ color: {error_hex}; }}
         .launcher-card .sc-suggest {{ color: {colors['green']}; }}
-        .sc-small {{ font-size: 11px; padding: 2px 8px; min-height: 0; border-radius: {radius}px; }}
-        .launcher-card button, .launcher-card scrollbar, .launcher-card scrollbar slider,
-        popover.launcher-popover contents, popover.launcher-popover button {{ border-radius: {radius}px; }}
+        .sc-small {{ font-size: 11px; padding: 2px 8px; min-height: 0; border-radius: {control}px; }}
+        .launcher-card button, popover.launcher-popover button {{ border-radius: {control}px; }}
+        popover.launcher-popover contents {{ border-radius: {radius}px; }}
+        .launcher-card scrollbar trough {{ border-radius: {small}px; }}
+        .launcher-card scrollbar slider {{ border-radius: {pill}px; }}
+        /* Every other control follows the same Corners setting: drop-downs and
+           their lists, fields, check boxes, sliders, progress bars, tooltips. */
+        window#launcher-window dropdown > button, window#launcher-window menubutton > button,
+        window#launcher-window entry, window#launcher-window spinbutton {{ border-radius: {control}px; }}
+        window#launcher-window popover > contents {{ border-radius: {radius}px; }}
+        window#launcher-window popover listview > row, window#launcher-window popover modelbutton {{
+            border-radius: {small}px; }}
+        window#launcher-window checkbutton check {{ border-radius: {small}px; }}
+        window#launcher-window scale trough, window#launcher-window scale highlight,
+        window#launcher-window progressbar trough, window#launcher-window progressbar progress {{
+            border-radius: {small}px; }}
+        window#launcher-window scale slider {{ min-width: 14px; min-height: 14px; margin: -6px;
+            border-radius: {pill}px; }}
+        window#launcher-window list.boxed-list, window#launcher-window list.boxed-list > row:first-child,
+        window#launcher-window list.boxed-list > row:last-child {{ border-radius: {radius}px; }}
+        tooltip, tooltip.background {{ border-radius: {control}px; }}
+        /* After F12: the note dialog over the card. */
+        .launcher-dialog-backdrop {{ background: alpha(#000000, 0.45); border-radius: {radius}px; }}
+        .launcher-dialog {{ background: {bg_hex}; border: 1px solid {colors['accent']}; border-radius: {radius}px;
+            padding: 18px; }}
+        .launcher-dialog label, .launcher-dialog button {{ color: {colors['foreground']}; }}
+        .launcher-dialog button.sc-primary, .launcher-dialog button.sc-primary label {{ color: {colors['background']}; }}
         """
         if not POPUP:
             # The app window: the card is its content; the desktop draws the frame and corners.
@@ -2617,7 +2655,14 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         .launcher-headerbar-content button.launcher-toggle-active {{ background: alpha({accent}, 0.35); }}
         .launcher-headerbar-content .launcher-view-switch button.launcher-header-btn {{ border-radius: 0; }}
         """
-        css += more_plugins.css("launcher", fg_hex, dim_hex, colors["accent"], min(radius, 8))
+        css += more_plugins.css("launcher", fg_hex, dim_hex, colors["accent"], radius)
+        css += f".launcher-more-icon {{ border-radius: {small}px; }}\n"  # its own 5 px: the small size
+        if radius == 0:
+            # Square: libadwaita's and GTK's own controls too; the run dots stay
+            # round (they are marks, like the dock's), the slider knob small.
+            css += ("window#launcher-window *:not(.launcher-run-dot):not(.launcher-update-dot)"
+                    ":not(.launcher-filter-dot) { border-radius: 0; }\n")
+            css += "tooltip, tooltip * { border-radius: 0; }\n"  # tooltips are windows of their own
         provider = Gtk.CssProvider()
         provider.load_from_data(css.encode())
         Gtk.StyleContext.add_provider_for_display(
@@ -2690,6 +2735,8 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
             self.hide()
 
     def hide(self):
+        if self.shot_dialog_open():
+            self.finish_screenshot_note(False)  # Never reopen onto an old picture's note.
         self.layer_watch.stop()
         self.tell_dock(False)
         if self.actions_menu_open():
@@ -2891,6 +2938,23 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
             row.grab_focus()
 
     def on_key(self, _controller, key, _code, state):
+        # The screenshot note: Esc skips it, Enter keeps it; other keys type.
+        if self.shot_dialog_open():
+            if key == Gdk.KEY_Escape:
+                self.finish_screenshot_note(False)
+                return True
+            if key in (Gdk.KEY_Return, Gdk.KEY_KP_Enter, Gdk.KEY_ISO_Enter):
+                self.finish_screenshot_note(True)
+                return True
+            return False
+        # F12 alone saves a picture of the card. While a shortcut is being
+        # recorded the capture-phase handler (on_shortcut_key) takes every
+        # key first, so F12 can still be recorded there.
+        if key == Gdk.KEY_F12 and not state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK
+                                               | Gdk.ModifierType.SUPER_MASK | Gdk.ModifierType.SHIFT_MASK):
+            if self.shortcut_app is None and self.screenshot_key_on():
+                GLib.idle_add(self.take_screenshot)
+                return True
         # The settings page: Esc and Backspace go back to the list.
         if self.settings_open() and key in (Gdk.KEY_Escape, Gdk.KEY_BackSpace):
             self.close_settings_page()
@@ -4370,6 +4434,174 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         except OSError:
             pass
 
+    # --- F12 screenshot -------------------------------------------------------
+
+    def build_screenshot_dialog(self):
+        """After F12, as in Theme Manager: a small dialog over the card with
+        where the picture went and an optional note. A separate Gtk.Window
+        would open beneath this layer surface, so it is an overlay; the
+        backdrop takes every click meant for the page under it."""
+        backdrop = Gtk.Box()
+        backdrop.add_css_class("launcher-dialog-backdrop")
+        backdrop.set_hexpand(True)
+        backdrop.set_vexpand(True)
+        backdrop.set_visible(False)
+        dialog = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12,
+                         accessible_role=Gtk.AccessibleRole.DIALOG)
+        dialog.add_css_class("launcher-dialog")
+        dialog.set_halign(Gtk.Align.CENTER)
+        dialog.set_valign(Gtk.Align.CENTER)
+        dialog.set_hexpand(True)
+        dialog.set_margin_start(24)
+        dialog.set_margin_end(24)
+        path = Gtk.Label(xalign=0, wrap=True, selectable=True, max_width_chars=40)
+        path.set_wrap_mode(2)  # Pango WORD_CHAR: long paths break anywhere.
+        dialog.append(path)
+        note = Gtk.Entry(placeholder_text=_("What is wrong? (optional)"))
+        note.update_property([Gtk.AccessibleProperty.LABEL], [_("What is wrong? (optional)")])
+        note.set_max_length(screenshots.MAX_NOTE)
+        self.guard_text_field(note)
+        note.connect("activate", lambda *_a: self.finish_screenshot_note(True))
+        dialog.append(note)
+        actions = Gtk.Box(spacing=8)
+        actions.set_halign(Gtk.Align.END)
+        open_folder = Gtk.Button(label=_("Open folder"))
+        open_folder.add_css_class("sc-small")
+        open_folder.connect("clicked", lambda *_a: self.open_screenshot_folder())
+        actions.append(open_folder)
+        done = Gtk.Button(label=_("Done"))
+        done.add_css_class("sc-primary")
+        done.connect("clicked", lambda *_a: self.finish_screenshot_note(True))
+        actions.append(done)
+        dialog.append(actions)
+        backdrop.append(dialog)
+        self.shot_dialog, self.shot_path_label, self.shot_note_entry = backdrop, path, note
+        self.shot_path = None
+        return backdrop
+
+    def shot_dialog_open(self):
+        return getattr(self, "shot_dialog", None) is not None and self.shot_dialog.get_visible()
+
+    def screenshot_key_on(self):
+        return POPUP and screenshots.key_enabled(screenshot_settings())
+
+    def take_screenshot(self):
+        """The card as it is on screen: its place on the popup's layer surface
+        plus where that surface starts (hyprctl layers, the bar left out)."""
+        if getattr(self, "screenshot_busy", False) or not (self.window and self.window.is_visible()):
+            return GLib.SOURCE_REMOVE
+        ok, bounds = self.card.compute_bounds(self.overlay)
+        if not ok:
+            self.notify(_("Could not save screenshot"), _("The monitor position is unavailable."))
+            return GLib.SOURCE_REMOVE
+        card = (round(bounds.get_x()), round(bounds.get_y()),
+                round(bounds.get_width()), round(bounds.get_height()))
+        settings = screenshot_settings()
+        self.screenshot_busy = True
+
+        def work():
+            path = error = None
+            try:
+                origin = screenshots.layer_origin(dock_core.hyprctl_json("layers"))
+                if origin is None:
+                    raise OSError(_("The monitor position is unavailable."))
+                path = screenshots.capture_to_settings(
+                    (origin[0] + card[0], origin[1] + card[1], card[2], card[3]), settings)
+            except (OSError, ValueError, subprocess.SubprocessError) as problem:
+                error = problem
+            GLib.idle_add(done, path, error)
+
+        def done(path, error):
+            self.screenshot_busy = False
+            if error is not None:
+                self.notify(_("Could not save screenshot"), str(error))
+            elif self.window.is_visible():
+                self.show_screenshot_note(path)
+            else:
+                self.notify(_("Screenshot saved"), str(path))
+            return GLib.SOURCE_REMOVE
+        threading.Thread(target=work, daemon=True).start()
+        return GLib.SOURCE_REMOVE
+
+    def show_screenshot_note(self, path):
+        if self.actions_menu_open():
+            self.actions_popover.popdown()
+        self.shot_path = path
+        self.shot_path_label.set_label(_("Screenshot saved: {0}").format(path))
+        self.shot_note_entry.set_text("")
+        self.shot_dialog.set_visible(True)
+        for widget in (self.stack, self.header_bar):  # No Tab into the page under it.
+            widget.set_sensitive(False)
+        self.shot_note_entry.grab_focus()
+
+    def finish_screenshot_note(self, save):
+        """Done or Enter keeps the note (none typed: no file); Esc skips it."""
+        if not self.shot_dialog_open():
+            return
+        if save and self.shot_path is not None:
+            try:
+                screenshots.save_note(self.shot_path, self.shot_note_entry.get_text())
+            except (OSError, ValueError) as error:
+                self.notify(_("Could not save screenshot note"), str(error))
+        self.shot_path = None
+        self.shot_note_entry.set_text("")
+        self.shot_dialog.set_visible(False)
+        for widget in (self.stack, self.header_bar):
+            widget.set_sensitive(True)
+
+    def open_screenshot_folder(self):
+        if self.shot_path is None:
+            return
+        try:
+            subprocess.Popen(["xdg-open", str(self.shot_path.parent)], stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        except OSError as error:
+            self.notify(_("Could not open folder"), str(error))
+            return
+        self.keep_open_until = time.monotonic() + 2  # The file manager takes the focus.
+
+    def set_screenshot_key(self, on):
+        try:
+            set_screenshot_setting("screenshot_key", on)
+        except OSError as error:
+            self.notify(_("Could not save the setting"), str(error))
+
+    def set_screenshot_folder(self, folder):
+        try:
+            set_screenshot_setting("screenshot_folder", folder)
+        except OSError as error:
+            self.notify(_("Could not save the setting"), str(error))
+        self.sync_screenshot_folder()
+
+    def sync_screenshot_folder(self):
+        label = getattr(self, "shot_folder_label", None)
+        if label is None:
+            return
+        folder = str(screenshots.folder_from_settings(screenshot_settings()))
+        label.set_label(folder)
+        label.set_tooltip_text(folder)
+        self.shot_default_button.set_visible(bool(screenshot_settings().get("screenshot_folder")))
+
+    def choose_screenshot_folder(self):
+        """A folder dialog would open beneath this layer surface: the popup
+        steps aside (hidden, its page kept) and comes back afterwards."""
+        dialog = Gtk.FileDialog(title=_("Choose screenshot folder"), modal=False)
+        folder = screenshots.folder_from_settings(screenshot_settings())
+        if folder.is_dir():
+            dialog.set_initial_folder(Gio.File.new_for_path(str(folder)))
+        self.window.set_visible(False)
+
+        def done(_dialog, result):
+            try:
+                chosen = dialog.select_folder_finish(result)
+            except GLib.Error:
+                chosen = None
+            self.window.present()
+            if chosen is not None and chosen.get_path():
+                self.set_screenshot_folder(chosen.get_path())
+
+        dialog.select_folder(None, None, done)
+
     # --- shortcut page --------------------------------------------------------
 
     def build_shortcut_page(self):
@@ -4656,6 +4888,8 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
             grid.attach(label(_("Look"), look_tip), 0, 6, 1, 1)
             grid.attach(look_dropdown, 1, 6, 1, 1)
             self.look_dropdown = look_dropdown
+        if POPUP:
+            self.build_screenshot_settings(grid, label, 9)
         # What Layout and View buttons do, animated.
         layout_sketch = previews.LayoutSketch(lambda: self.theme.colors,
                                               lambda: (self.wide_layout, self.view_buttons_on,
@@ -4680,6 +4914,37 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         self.admin_switch = admin_switch
         self.language_dropdown = dropdown
         self.stack.add_named(page, "settings")
+
+    def build_screenshot_settings(self, grid, label, row):
+        """F12 on or off, and the folder the pictures (and notes) go to."""
+        settings = screenshot_settings()
+        key_tip = _("Save a picture of the App Manager popup while it is open, with an optional note beside it. Nothing is sent anywhere.")
+        key_switch = Gtk.Switch(active=screenshots.key_enabled(settings), halign=Gtk.Align.START, valign=Gtk.Align.CENTER)
+        key_switch.add_css_class("launcher-compact-switch")
+        key_switch.set_tooltip_text(key_tip)
+        key_switch.connect("notify::active", lambda sw, _p: self.set_screenshot_key(sw.get_active()))
+        grid.attach(label(_("F12 saves a screenshot"), key_tip), 0, row, 1, 1)
+        grid.attach(key_switch, 1, row, 1, 1)
+        self.shot_key_switch = key_switch
+        folder_row = Gtk.Box(spacing=6, valign=Gtk.Align.CENTER)
+        folder_label = Gtk.Label(xalign=0, ellipsize=2, max_width_chars=22)  # Pango MIDDLE
+        folder_label.add_css_class("launcher-settings-hint")
+        folder_row.append(folder_label)
+        default = Gtk.Button(label=_("Default"))
+        default.add_css_class("sc-small")
+        default.set_tooltip_text(str(screenshots.default_folder()))
+        default.connect("clicked", lambda *_a: self.set_screenshot_folder(None))
+        folder_row.append(default)
+        choose = Gtk.Button(icon_name="folder-open-symbolic")
+        choose.add_css_class("sc-small")
+        choose.set_tooltip_text(_("Choose folder…"))
+        choose.update_property([Gtk.AccessibleProperty.LABEL], [_("Choose screenshot folder")])
+        choose.connect("clicked", lambda *_a: self.choose_screenshot_folder())
+        folder_row.append(choose)
+        grid.attach(label(_("Screenshots go to")), 0, row + 1, 1, 1)
+        grid.attach(folder_row, 1, row + 1, 1, 1)
+        self.shot_folder_label, self.shot_default_button = folder_label, default
+        self.sync_screenshot_folder()
 
     def build_dock_settings(self, grid, label, row):
         """The DOCK group: on/off, edge, auto-hide, length, corners."""
@@ -4826,7 +5091,8 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
 
     def reset_general_settings(self):
         """Language: the system's; Open as administrator: off; layouts:
-        folders when wide, the list when small; corners like the windows. A
+        folders when wide, the list when small; corners like the windows; F12
+        on, into the default folder. A
         new language restarts the popup (on this page), so it comes last."""
         if self.admin_switch.get_active():
             self.admin_switch.set_active(False)  # Its handler switches the action off properly.
@@ -4834,6 +5100,10 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         self.toggle_view("list")
         self.set_filter_field(True)
         self.corners_dropdown.set_selected(0)  # "Like windows": saves and redraws.
+        if getattr(self, "shot_key_switch", None) is not None:
+            self.shot_key_switch.set_active(True)  # F12 on, pictures to ~/Pictures/AppManager.
+            if screenshot_settings().get("screenshot_folder"):
+                self.set_screenshot_folder(None)
         self.icon_size_dropdown.set_selected(APP_ICON_SIZES.index(DEFAULT_APP_ICON_SIZE))
         if getattr(self, "look_dropdown", None) is not None and saved_look() != "omarchy":
             # Back to the Omarchy theme: saves and restarts (on this page).

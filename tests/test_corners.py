@@ -27,8 +27,23 @@ class CornersTests(unittest.TestCase):
         self.assertEqual(corners.radius("windows", 8), 8)
         self.assertEqual(corners.radius("windows", None), 0)
         self.assertEqual(corners.radius("rounded", 0), corners.ROUNDED)
+        self.assertEqual(corners.radius("slight", 0), corners.SLIGHT)
+        self.assertEqual(corners.radius("slight", 12), 6)
         self.assertEqual(corners.radius("square", 8), 0)
         self.assertEqual(corners.radius("bogus", 6), 6)  # Unknown values read as the default.
+
+    def test_stored_values_stay_compatible(self):
+        # Settings files written before "slight" existed keep their meaning.
+        for old in ("windows", "rounded", "square"):
+            self.assertEqual(corners.choice(old), old)
+        self.assertEqual(corners.CHOICES, ("windows", "slight", "rounded", "square"))
+        self.assertEqual(corners.choice(None), "windows")
+
+    def test_three_sizes(self):
+        self.assertEqual(corners.sizes(12), (12, 8, 4, 999))
+        self.assertEqual(corners.sizes(6), (6, 6, 4, 999))
+        self.assertEqual(corners.sizes(3), (3, 3, 3, 999))
+        self.assertEqual(corners.sizes(0), (0, 0, 0, 0))
 
     def write(self, name, text):
         path = self.dir / name
@@ -60,6 +75,36 @@ class CornersTests(unittest.TestCase):
         self.assertIsNone(corners.lua_rounding(link))
         huge = self.write("huge.lua", "rounding = 5\n" + "-" * (corners.MAX_LUA_BYTES + 10))
         self.assertIsNone(corners.lua_rounding(huge))
+
+
+class PopupCssTests(unittest.TestCase):
+    """Every corner in the popup's CSS comes from the Corners setting."""
+    ALLOWED = {
+        # The run, update and filter dots are marks (like the dock's), always round.
+        ".launcher-run-dot", ".launcher-update-dot", ".launcher-filter-dot",
+        # Segmented joints inside a two- or three-part switch, square on purpose.
+        ".launcher-view-switch button.launcher-header-btn", "button.launcher-filter-mode",
+        # The app window (other desktops): the desktop draws the frame and corners.
+        ".launcher-card.launcher-windowed",
+    }
+
+    def test_no_fixed_radius_outside_the_setting(self):
+        source = (Path(__file__).resolve().parents[1] / "launcher_popup.py").read_text()
+        start = source.index("    def apply_theme(self):")
+        css = source[start:source.index("\n    def ", start + 10)]
+        import re
+        fixed = []
+        for match in re.finditer(r"border-radius:\s*([^;]+?)\s*(?:;|\}\})", css):
+            value = match.group(1).strip()
+            if re.fullmatch(r"(\{(radius|control|small|pill)\}px\s*)+|(\{control\}px|0)( (\{control\}px|0)){3}", value):
+                continue
+            rule = css[css.rfind("\n", 0, css.rfind("{{", 0, match.start())) + 1:match.start()]
+            if value in ("0", "999px") and any(name in rule for name in self.ALLOWED):
+                continue
+            if "{ border-radius: 0; }" in css[match.start() - 2:match.end() + 3] and "radius == 0" in css[max(0, match.start() - 400):match.start()]:
+                continue  # Square: the catch-all and the tooltips.
+            fixed.append((value, rule.strip()[:80]))
+        self.assertEqual(fixed, [])
 
 
 if __name__ == "__main__":

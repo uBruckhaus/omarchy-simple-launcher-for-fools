@@ -12,7 +12,8 @@ class ActionsMenuTests(unittest.TestCase):
         source = Path(__file__).resolve().parents[1] / "launcher_popup.py"
         tree = ast.parse(source.read_text())
         cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "Launcher")
-        names = {"actions_menu_open", "on_actions_closed", "poll", "hide_if_inactive", "reload_apps", "on_key", "settings_open"}
+        names = {"actions_menu_open", "on_actions_closed", "poll", "hide_if_inactive", "reload_apps", "on_key", "settings_open",
+                 "shot_dialog_open"}
         cls.bases = []
         cls.body = [n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name in names]
         self.glib = SimpleNamespace(SOURCE_REMOVE=False, SOURCE_CONTINUE=True,
@@ -20,7 +21,8 @@ class ActionsMenuTests(unittest.TestCase):
         # Threads run at once in these tests.
         thread = lambda target, daemon=True: SimpleNamespace(start=target)
         namespace = {"threading": SimpleNamespace(Thread=thread), "dock_core": Mock(),
-                     "GLib": self.glib, "Gdk": SimpleNamespace(KEY_Escape=27, KEY_BackSpace=8, KEY_Super_L=65515, KEY_Super_R=65516), "time": time}
+                     "GLib": self.glib, "Gdk": SimpleNamespace(KEY_Escape=27, KEY_BackSpace=8, KEY_Super_L=65515, KEY_Super_R=65516,
+                                                     KEY_F12=65481), "time": time}
         exec(compile(ast.Module(body=[cls], type_ignores=[]), str(source), "exec"), namespace)
         self.app = namespace["Launcher"]()
         self.namespace = namespace

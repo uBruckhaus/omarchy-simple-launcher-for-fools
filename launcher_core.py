@@ -227,7 +227,7 @@ def set_wide_layout(layout, path=None):
 
 
 def saved_corners(path=None):
-    """"windows" (follow Hyprland's window rounding; the default), "rounded" or "square"."""
+    """"windows" (follow Hyprland's window rounding; the default), "slight", "rounded" or "square"."""
     return corners.choice(_load_settings(path).get("corners"))
 
 
@@ -277,6 +277,22 @@ def filter_field_shown(path=None):
 
 def set_filter_field_shown(shown, path=None):
     _save_setting("filter_field", bool(shown), path)
+
+
+SCREENSHOT_KEYS = ("screenshot_key", "screenshot_folder")
+
+
+def screenshot_settings(path=None):
+    """F12's settings as screenshots.py reads them: screenshot_key (on unless
+    False) and screenshot_folder (an absolute path; missing: ~/Pictures/AppManager)."""
+    data = _load_settings(path)
+    return {key: data[key] for key in SCREENSHOT_KEYS if key in data}
+
+
+def set_screenshot_setting(key, value, path=None):
+    if key not in SCREENSHOT_KEYS:
+        raise ValueError(key)
+    _save_setting(key, bool(value) if key == "screenshot_key" else value, path)
 
 
 def saved_size(key, path=None):

@@ -30,6 +30,12 @@ Open an app's menu (`☰`, `→`) → **Shortcut…**, or press `Ctrl+K`.
 - **All shortcuts of an app in one place**: launcher-made ones, your own `bindings.lua` binds and Omarchy defaults (including your default terminal, browser and editor, e.g. `Super + Enter` → Foot). Change, remove or turn off any of them; a `+1` badge in the list shows apps with more than one.
 - **No duplicates, no edits to your files**: a key that already opens the same thing is never added twice. Everything lives in a generated `~/.config/hypr/simple-launcher-shortcuts.lua`, validated with `hyprctl configerrors` and rolled back if Hyprland rejects it.
 
+## Changes in 2.5.0
+
+**F12 saves a screenshot.** While the popup is open, **F12** (no modifiers) saves a picture of it, as in Theme Manager: a PNG named `app-manager-<date-time>.png` in `~/Pictures/AppManager/` (or a folder you choose in the settings). A small dialog over the card then shows where it went and offers a one-line **note** (“What is wrong?”, at most 1000 characters); **Done** or Enter saves it as a `.txt` file of the same name next to the picture, Esc skips it, and no note means no file. **Open folder** shows the folder. Existing files are never overwritten (`-2`, `-3`, … are added), pictures and notes are private (`0600`), the folder must be yours and not writable by others (else the default folder is used), and nothing follows a planted link. The picture is taken with `grim` (no shell) into a private temporary folder first. Files are written only when you press F12; nothing is uploaded or sent anywhere. While a shortcut is being recorded, F12 is the key being recorded, not a screenshot. **Settings › F12 saves a screenshot** turns it off; **Screenshots go to** picks the folder (**Default** goes back to `~/Pictures/AppManager`). Bar popup (Omarchy) only.
+
+**Corners for every control.** The **Corners** setting now shapes every control, not only the popup, its folders and cards: buttons, drop-downs and fields (the filter field too) take at most 8 px, check boxes, small badges, key caps and tracks at most 4 px, chips and switches stay round pills, pop-ups, menus, tooltips and the new note dialog follow as well. **Square** squares all of them (the run dots stay round, the switch knob stays small). New choice **Slightly rounded (6 px)** between Like windows and Rounded (12 px); settings saved before keep their meaning. The settings preview draws its icons and group chips the same way.
+
 ## Changes in 2.4.2
 
 **Information page.** The cards also list the author's plugins kept in the author's GitHub organization (Maprisma Launcher in `github.com/maprisma`). A cached list from before is read again in full at its next hourly check. The built-in list (shown offline) has a Maprisma Launcher card too.
@@ -119,6 +125,7 @@ App Manager sends nothing about you anywhere. It uses the network only for these
 - **Plugin updates:** `git fetch origin HEAD` in the git checkouts under `~/.config/omarchy/plugins` (the same as `omarchy plugin update`), at most every 30 minutes while App Manager is used.
 - **Package updates:** `checkupdates` (a private copy of the package database) and `yay -Qua` for AUR packages, at most every 30 minutes.
 - **Information page (ⓘ):** only when you open it, at most once an hour (the time is kept in the cache file; if that file cannot be written, e.g. on a full disk, once per App Manager start), `curl --proto =https --max-redirs 0` to the marketplace's catalog `https://raw.githubusercontent.com/omacom/omarchy-plugin-marketplace/main/site/catalog.json` (at most 40 MiB and 40 s; with the last `ETag`, so an unchanged catalog is not downloaded again). Only the author's own entries (repositories under `github.com/ubruckhaus` or `github.com/maprisma`, at most 60) are kept, as id, name, version, description text and the marketplace's verified flag, with the time of the last check and the `ETag`, in `~/.cache/applauncher/plugin-catalog.json` (written atomically). Offline, the cached list or the built-in one is shown. A failed attempt counts as well, so it is never tried more than once an hour (again: per App Manager start if the cache cannot be written). A list cached before 2.4.2 is read again in full, without its `ETag`, at its next hourly check.
+- **F12 screenshots** use no network: the picture and its optional note stay in `~/Pictures/AppManager` (or your chosen folder) and are written only when you press F12.
 - **Change icon…:** only when you search, `curl --proto =https --max-redirs 0` to `cdn.jsdelivr.net`: the three collections' name lists (at most 4 MiB each, cached in `~/.cache/applauncher/icon-index/` and fetched again after a week) and icon files (at most 1 MiB, checked like every other icon before it is shown).
 
 ## Changes in 1.9.2
@@ -233,7 +240,9 @@ Open the settings page with the **gear (⚙)** at the top right of the popup; **
 | Layout when small | List, groups or by origin | List |
 | Layout when wide | Folders or cards (two columns or more) | Folders |
 | View buttons when small | The list / groups / origin buttons in the small popup's header (`Ctrl+G` works anyway) | Off |
-| Corners | Like windows (Hyprland's window rounding, from the theme or `looknfeel.lua`), Rounded or Square: the popup, folders, cards and dock | Like windows |
+| Corners | Like windows (Hyprland's window rounding, from the theme or `looknfeel.lua`), Slightly rounded (6 px), Rounded (12 px) or Square: the popup, folders, cards, every control and the dock | Like windows |
+| F12 saves a screenshot | F12 in the open popup saves a picture of it, with an optional note (see *Changes in 2.5.0*) | On |
+| Screenshots go to | The folder for those pictures and notes | `~/Pictures/AppManager` |
 | App icon size | The icons on the cards (the list's are 12 px smaller): 32, 40, 44, 48, 56 or 64 px | 44 px |
 | Dock | See *Changes in 2.0.0* | Off |
 
@@ -319,6 +328,7 @@ Shortcuts are stored in `~/.config/applauncher/shortcuts.json` and written to `~
 | `Right Arrow` | Open context actions menu (for apps with desktop actions) |
 | `Delete` | Close active instance of the selected app |
 | `Ctrl+K` | Manage the global shortcut of the selected app |
+| `F12` | Save a screenshot of the popup, then add an optional note (Enter keeps it, Esc skips it) |
 | `Tab` | Switch between the app page and the widget & plugin page |
 | `Ctrl+G` | Step through list, group and origin view; with cards: the next group (`Ctrl+Shift+G`: the previous one) |
 | `Arrows`, `Home` / `End`, `Page Up` / `Page Down` with cards | Move between cards |
