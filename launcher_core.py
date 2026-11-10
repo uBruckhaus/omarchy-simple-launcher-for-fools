@@ -290,8 +290,13 @@ def screenshot_settings(path=None):
 
 
 def set_screenshot_setting(key, value, path=None):
+    """screenshot_folder: None (the default folder) or an absolute folder path
+    without links, `..` or control characters (screenshots.valid_folder_setting)."""
+    import screenshots
     if key not in SCREENSHOT_KEYS:
         raise ValueError(key)
+    if key == "screenshot_folder" and value is not None and not screenshots.valid_folder_setting(value):
+        raise ValueError("not a usable screenshot folder: " + repr(value)[:200])
     _save_setting(key, bool(value) if key == "screenshot_key" else value, path)
 
 

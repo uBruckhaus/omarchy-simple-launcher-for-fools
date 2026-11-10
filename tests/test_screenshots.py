@@ -160,9 +160,66 @@ class ScreenshotTests(TestCase):
             {"namespace": "simple-launcher-for-fools", "x": True, "y": 0, "pid": 42}]}}}, pid=42))
         self.assertIsNone(screenshots.layer_origin({"m": "bogus", "n": {"levels": []}}, pid=42))
 
+    def test_layer_origin_needs_our_pid_and_whole_numbers(self):
+        surface = lambda **kw: {"m": {"levels": {"3": [dict(namespace="simple-launcher-for-fools", **kw)]}}}
+        self.assertIsNone(screenshots.layer_origin(surface(x=0, y=0), pid=42))            # no pid
+        self.assertIsNone(screenshots.layer_origin(surface(x=0, y=0, pid=None), pid=42))
+        self.assertIsNone(screenshots.layer_origin(surface(x=0, y=0, pid=True), pid=1))
+        for bad in (float("nan"), float("inf"), 1.5):
+            self.assertIsNone(screenshots.layer_origin(surface(x=bad, y=0, pid=42), pid=42))
+        import json
+        layers = json.loads('{"m": {"levels": {"3": [{"namespace": "simple-launcher-for-fools", '
+                            '"x": NaN, "y": 0, "pid": 42}]}}}')
+        self.assertIsNone(screenshots.layer_origin(layers, pid=42))
+        self.assertEqual(screenshots.layer_origin(surface(x=-1920, y=30, pid=42), pid=42), (-1920, 30))
+
+    def test_note_folder_must_be_private_and_not_a_link(self):
+        with TemporaryDirectory() as tmp:
+            real = Path(tmp) / "real"
+            real.mkdir(mode=0o700)
+            link = Path(tmp) / "link"
+            link.symlink_to(real)
+            with self.assertRaises(OSError):
+                screenshots.save_note(link / "shot.png", "note")
+            self.assertEqual(list(real.iterdir()), [])
+            shared = Path(tmp) / "shared"
+            shared.mkdir()
+            shared.chmod(0o777)
+            with self.assertRaises(ValueError):
+                screenshots.save_note(shared / "shot.png", "note")
+            self.assertEqual(list(shared.iterdir()), [])
+
+    def test_note_removed_when_it_cannot_be_written(self):
+        with TemporaryDirectory() as tmp:
+            with patch.object(screenshots.os, "fsync", side_effect=OSError("disk full")):
+                with self.assertRaises(OSError):
+                    screenshots.save_note(Path(tmp) / "shot.png", "note")
+            self.assertEqual(list(Path(tmp).iterdir()), [])
+
+    def test_folder_setting_is_checked_when_saved(self):
+        import launcher_core
+        with TemporaryDirectory() as tmp:
+            settings = Path(tmp) / "settings.json"
+            (Path(tmp) / "real").mkdir()
+            (Path(tmp) / "link").symlink_to(Path(tmp) / "real")
+            for bad in ("relative/shots", "/tmp/../etc", "/tmp/bad\nname", str(Path(tmp) / "link" / "x"), 7):
+                with self.assertRaises(ValueError):
+                    launcher_core.set_screenshot_setting("screenshot_folder", bad, settings)
+            self.assertEqual(launcher_core.screenshot_settings(settings), {})
+            launcher_core.set_screenshot_setting("screenshot_folder", str(Path(tmp) / "real"), settings)
+            launcher_core.set_screenshot_setting("screenshot_key", 0, settings)
+            self.assertEqual(launcher_core.screenshot_settings(settings),
+                             {"screenshot_key": False, "screenshot_folder": str(Path(tmp) / "real")})
+            launcher_core.set_screenshot_setting("screenshot_folder", None, settings)
+            self.assertIsNone(launcher_core.screenshot_settings(settings)["screenshot_folder"])
+            with self.assertRaises(ValueError):
+                launcher_core.set_screenshot_setting("language", "de", settings)
+
     def test_invalid_geometry_is_refused_before_grim(self):
         with TemporaryDirectory() as tmp, patch.object(screenshots.subprocess, "run") as grim:
-            for geometry in ((0, 0, 0, 10), (0, 0, 10, -1), (0, 0, 20000, 10)):
+            for geometry in ((0, 0, 0, 10), (0, 0, 10, -1), (0, 0, 20000, 10), (True, 0, 10, 10),
+                             (0.5, 0, 10, 10), (0, 0, 10), ("0", 0, 10, 10), (0, 0, 10, float("nan")),
+                             (1 << 30, 0, 10, 10)):
                 with self.assertRaises(ValueError):
                     screenshots.capture(geometry, Path(tmp))
         grim.assert_not_called()

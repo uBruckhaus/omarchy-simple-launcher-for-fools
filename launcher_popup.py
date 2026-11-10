@@ -2417,8 +2417,8 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         /* Segmented joints: the parts inside the switch stay square on purpose,
            the outer ends take the switch's corners. */
         .launcher-view-switch button.launcher-header-btn {{ margin-right: 0; border-radius: 0; }}
-        .launcher-view-switch > button:first-child {{ border-radius: {control}px 0 0 {control}px; }}
-        .launcher-view-switch > button:last-child {{ border-radius: 0 {control}px {control}px 0; }}
+        .launcher-view-switch > button.launcher-header-btn:first-child {{ border-radius: {control}px 0 0 {control}px; }}
+        .launcher-view-switch > button.launcher-header-btn:last-child {{ border-radius: 0 {control}px {control}px 0; }}
         .launcher-view-switch button.launcher-toggle-active {{ background: alpha({colors['accent']}, 0.35); }}
         .launcher-card button.launcher-group-menu {{ padding: 2px; min-width: 0; min-height: 0; }}
         .launcher-group-error {{ color: {colors['red']}; font-size: 12px; }}
@@ -2641,7 +2641,9 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         .launcher-dialog {{ background: {bg_hex}; border: 1px solid {colors['accent']}; border-radius: {radius}px;
             padding: 18px; }}
         .launcher-dialog label, .launcher-dialog button {{ color: {colors['foreground']}; }}
-        .launcher-dialog button.sc-primary, .launcher-dialog button.sc-primary label {{ color: {colors['background']}; }}
+        .launcher-dialog button.sc-primary, .launcher-dialog button.sc-primary label {{ color: {colors['background']};
+            font-weight: 600; }}
+        .launcher-dialog entry.launcher-filter-entry {{ color: {colors['foreground']}; }}
         """
         if not POPUP:
             # The app window: the card is its content; the desktop draws the frame and corners.
@@ -2654,6 +2656,10 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         .launcher-headerbar-content button.launcher-header-btn {{ padding: 4px; min-width: 0; min-height: 0; }}
         .launcher-headerbar-content button.launcher-toggle-active {{ background: alpha({accent}, 0.35); }}
         .launcher-headerbar-content .launcher-view-switch button.launcher-header-btn {{ border-radius: 0; }}
+        .launcher-headerbar-content .launcher-view-switch > button.launcher-header-btn:first-child {{
+            border-radius: {control}px 0 0 {control}px; }}
+        .launcher-headerbar-content .launcher-view-switch > button.launcher-header-btn:last-child {{
+            border-radius: 0 {control}px {control}px 0; }}
         """
         css += more_plugins.css("launcher", fg_hex, dim_hex, colors["accent"], radius)
         css += f".launcher-more-icon {{ border-radius: {small}px; }}\n"  # its own 5 px: the small size
@@ -2736,7 +2742,7 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
 
     def hide(self):
         if self.shot_dialog_open():
-            self.finish_screenshot_note(False)  # Never reopen onto an old picture's note.
+            self.finish_screenshot_note(True)  # A typed note is kept (none: no file), as in Theme Manager.
         self.layer_watch.stop()
         self.tell_dock(False)
         if self.actions_menu_open():
@@ -2945,6 +2951,19 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
                 return True
             if key in (Gdk.KEY_Return, Gdk.KEY_KP_Enter, Gdk.KEY_ISO_Enter):
                 self.finish_screenshot_note(True)
+                return True
+            if self.note_field_lacks_focus() and (key == Gdk.KEY_BackSpace or (
+                    not state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK | Gdk.ModifierType.SUPER_MASK)
+                    and chr(Gdk.keyval_to_unicode(key) or 0).isprintable() and Gdk.keyval_to_unicode(key))):
+                # Focus on the path or a button: the key goes to the note.
+                self.shot_note_entry.grab_focus()
+                text = self.shot_note_entry.get_text()
+                if key == Gdk.KEY_BackSpace:
+                    text = text[:-1]
+                else:
+                    text += chr(Gdk.keyval_to_unicode(key))
+                self.shot_note_entry.set_text(text[:screenshots.MAX_NOTE])
+                self.shot_note_entry.set_position(-1)
                 return True
             return False
         # F12 alone saves a picture of the card. While a shortcut is being
@@ -4460,6 +4479,7 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         note = Gtk.Entry(placeholder_text=_("What is wrong? (optional)"))
         note.update_property([Gtk.AccessibleProperty.LABEL], [_("What is wrong? (optional)")])
         note.set_max_length(screenshots.MAX_NOTE)
+        note.add_css_class("launcher-filter-entry")  # Like the popup's other fields.
         self.guard_text_field(note)
         note.connect("activate", lambda *_a: self.finish_screenshot_note(True))
         dialog.append(note)
@@ -4478,6 +4498,11 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         self.shot_dialog, self.shot_path_label, self.shot_note_entry = backdrop, path, note
         self.shot_path = None
         return backdrop
+
+    def note_field_lacks_focus(self):
+        focus = self.window.get_focus() if self.window is not None else None
+        entry = self.shot_note_entry
+        return focus is None or not (focus is entry or focus.is_ancestor(entry))
 
     def shot_dialog_open(self):
         return getattr(self, "shot_dialog", None) is not None and self.shot_dialog.get_visible()
@@ -4527,6 +4552,7 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         if self.actions_menu_open():
             self.actions_popover.popdown()
         self.shot_path = path
+        self.shot_prev_focus = self.window.get_focus()  # Back there when the dialog closes.
         self.shot_path_label.set_label(_("Screenshot saved: {0}").format(path))
         self.shot_note_entry.set_text("")
         self.shot_dialog.set_visible(True)
@@ -4545,9 +4571,14 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
                 self.notify(_("Could not save screenshot note"), str(error))
         self.shot_path = None
         self.shot_note_entry.set_text("")
-        self.shot_dialog.set_visible(False)
+        # The page first, then the dialog away: focus can go back to the
+        # field it was in (the icon search, a group name), else GTK drops it.
         for widget in (self.stack, self.header_bar):
             widget.set_sensitive(True)
+        self.shot_dialog.set_visible(False)
+        previous, self.shot_prev_focus = getattr(self, "shot_prev_focus", None), None
+        if previous is not None and previous.get_mapped() and previous.is_sensitive():
+            previous.grab_focus()
 
     def open_screenshot_folder(self):
         if self.shot_path is None:
@@ -4569,7 +4600,7 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
     def set_screenshot_folder(self, folder):
         try:
             set_screenshot_setting("screenshot_folder", folder)
-        except OSError as error:
+        except (OSError, ValueError) as error:
             self.notify(_("Could not save the setting"), str(error))
         self.sync_screenshot_folder()
 
@@ -4580,7 +4611,7 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         folder = str(screenshots.folder_from_settings(screenshot_settings()))
         label.set_label(folder)
         label.set_tooltip_text(folder)
-        self.shot_default_button.set_visible(bool(screenshot_settings().get("screenshot_folder")))
+        self.shot_default_button.set_visible(screenshots.valid_folder_setting(screenshot_settings().get("screenshot_folder")))
 
     def choose_screenshot_folder(self):
         """A folder dialog would open beneath this layer surface: the popup
@@ -5102,7 +5133,7 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         self.corners_dropdown.set_selected(0)  # "Like windows": saves and redraws.
         if getattr(self, "shot_key_switch", None) is not None:
             self.shot_key_switch.set_active(True)  # F12 on, pictures to ~/Pictures/AppManager.
-            if screenshot_settings().get("screenshot_folder"):
+            if screenshot_settings().get("screenshot_folder") is not None:
                 self.set_screenshot_folder(None)
         self.icon_size_dropdown.set_selected(APP_ICON_SIZES.index(DEFAULT_APP_ICON_SIZE))
         if getattr(self, "look_dropdown", None) is not None and saved_look() != "omarchy":
@@ -6564,7 +6595,9 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
                                      "sc-hint-omarchy", N_("Rebind"), "sc-omarchy-btn", True)
 
     def on_shortcut_key(self, controller, keyval, keycode, state):
-        if self.shortcut_app is None:
+        # The F12 note dialog has the keys, even over the shortcut page (a
+        # screenshot can finish after the page was opened).
+        if self.shortcut_app is None or self.shot_dialog_open():
             return False
         if keyval == Gdk.KEY_Escape:
             if self.sc_editing:

@@ -65,8 +65,8 @@ def layer_origin(layers, namespace: str = NAMESPACE, pid: int | None = None):
             for layer in surfaces if isinstance(surfaces, list) else ():
                 if not isinstance(layer, dict) or layer.get("namespace") != namespace:
                     continue
-                if layer.get("pid") not in (None, pid):
-                    continue
+                if layer.get("pid") != pid or isinstance(layer.get("pid"), bool):
+                    continue                  # only this process's own surface
                 x, y = layer.get("x"), layer.get("y")
                 if isinstance(x, int) and isinstance(y, int) and not isinstance(x, bool) \
                         and not isinstance(y, bool):
@@ -94,8 +94,11 @@ def capture(geometry: tuple[int, int, int, int], folder: Path | None = None,
     The folder must be yours and closed to others; the name is created
     exclusively, never follows a link and never takes the name of an
     existing picture or note."""
+    if not isinstance(geometry, (tuple, list)) or len(geometry) != 4 or \
+            not all(isinstance(v, int) and not isinstance(v, bool) for v in geometry):
+        raise ValueError("invalid screenshot geometry")
     x, y, width, height = geometry
-    if width <= 0 or height <= 0 or width > 16384 or height > 16384:
+    if abs(x) > 1 << 20 or abs(y) > 1 << 20 or width <= 0 or height <= 0 or width > 16384 or height > 16384:
         raise ValueError("invalid screenshot geometry")
     folder = folder or default_folder()
     folder.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -173,7 +176,33 @@ def save_note(picture: Path, note: str) -> Path | None:
     if len(note) > MAX_NOTE:
         raise ValueError("screenshot note is too long")
     path = picture.with_suffix(".txt")
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as output:
-        output.write(note + "\n")
+    # As capture(): through a handle on the folder, which must be yours and
+    # closed to others; the note is created exclusively, never via a link,
+    # and removed again if it cannot be written in full.
+    dir_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        info = os.fstat(dir_fd)
+        if info.st_uid != os.getuid() or info.st_mode & 0o022:
+            raise ValueError("the screenshot folder must be yours and not writable by others")
+        fd = os.open(path.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                     0o600, dir_fd=dir_fd)
+        try:
+            data = (note + "\n").encode("utf-8")
+            written = 0
+            while written < len(data):
+                written += os.write(fd, data[written:])
+            os.fsync(fd)
+        except BaseException:
+            os.close(fd)
+            fd = None
+            try:
+                os.unlink(path.name, dir_fd=dir_fd)
+            except OSError:
+                pass
+            raise
+        finally:
+            if fd is not None:
+                os.close(fd)
+    finally:
+        os.close(dir_fd)
     return path
