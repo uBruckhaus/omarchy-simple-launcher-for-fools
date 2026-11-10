@@ -74,6 +74,71 @@ def layer_origin(layers, namespace: str = NAMESPACE, pid: int | None = None):
     return None
 
 
+_DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+
+
+def _destination(folder: Path | None) -> Path:
+    """The folder to walk. The default one may sit behind links you made
+    yourself (~/Pictures on another disk): it is resolved once here. A custom
+    folder is used as given (valid_folder_setting already refused links)."""
+    if folder is None or folder == default_folder():
+        return Path(os.path.realpath(default_folder()))
+    return folder
+
+
+def _creatable_roots() -> tuple:
+    """Where missing folders may be made: inside your home, and inside the
+    real place of ~/Pictures when that is a link of yours to another disk."""
+    home = Path.home()
+    return (Path(os.path.realpath(home)), Path(os.path.realpath(home / "Pictures")))
+
+
+def open_folder(folder: Path, create: bool = False) -> int:
+    """A handle on `folder`, reached component by component from / with
+    O_DIRECTORY|O_NOFOLLOW, so no link anywhere on the path is followed, also
+    one swapped in after the setting was checked. Missing folders are created
+    (0700) only inside your home folder (or ~/Pictures' real place), and only
+    when `create` is set. The
+    folder itself must be yours and not writable by others."""
+    folder = Path(folder)
+    if not folder.is_absolute() or any(part in (".", "..") for part in folder.parts):
+        raise ValueError("the screenshot folder must be an absolute path")
+    roots = _creatable_roots() if create else ()
+    fd = os.open("/", _DIR_FLAGS)
+    try:
+        current = Path("/")
+        for part in folder.parts[1:]:
+            current /= part
+            try:
+                child = os.open(part, _DIR_FLAGS, dir_fd=fd)
+            except FileNotFoundError:
+                if not any(current != root and current.is_relative_to(root) for root in roots):
+                    raise
+                try:
+                    os.mkdir(part, 0o700, dir_fd=fd)
+                except FileExistsError:
+                    pass                       # made meanwhile: opened below, links still refused
+                child = os.open(part, _DIR_FLAGS, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        info = os.fstat(fd)
+        if info.st_uid != os.getuid() or info.st_mode & 0o022:
+            raise ValueError("the screenshot folder must be yours and not writable by others")
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def _write_all(fd: int, data: bytes):
+    view = memoryview(data)
+    while view:
+        written = os.write(fd, view)
+        if written <= 0:
+            raise OSError("short write")
+        view = view[written:]
+
+
 def _private_dir() -> str:
     runtime = os.environ.get("XDG_RUNTIME_DIR")
     base = runtime if runtime and os.path.isdir(runtime) else None
@@ -100,13 +165,9 @@ def capture(geometry: tuple[int, int, int, int], folder: Path | None = None,
     x, y, width, height = geometry
     if abs(x) > 1 << 20 or abs(y) > 1 << 20 or width <= 0 or height <= 0 or width > 16384 or height > 16384:
         raise ValueError("invalid screenshot geometry")
-    folder = folder or default_folder()
-    folder.mkdir(mode=0o700, parents=True, exist_ok=True)
-    dir_fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    folder = _destination(folder)
+    dir_fd = open_folder(folder, create=True)
     try:
-        info = os.fstat(dir_fd)
-        if info.st_uid != os.getuid() or info.st_mode & 0o022:
-            raise ValueError("the screenshot folder must be yours and not writable by others")
         private = _private_dir()
         shot = os.path.join(private, "shot.png")
         try:
@@ -135,16 +196,31 @@ def capture(geometry: tuple[int, int, int, int], folder: Path | None = None,
                         break
                     except FileExistsError:
                         continue
+                # Every byte written (short writes continued), the whole picture
+                # or nothing: on any failure the new file is removed again, so
+                # no cut-off picture is left or reported as saved.
                 try:
                     copied = 0
                     while copied < size:
                         chunk = os.read(source, min(1024 * 1024, size - copied))
                         if not chunk:
-                            break
-                        os.write(target, chunk)
+                            raise OSError("the screenshot ended early")
+                        _write_all(target, chunk)
                         copied += len(chunk)
-                finally:
+                    if os.read(source, 1):
+                        raise OSError("the screenshot changed while it was copied")
+                    os.fsync(target)
+                except BaseException:
                     os.close(target)
+                    target = None
+                    try:
+                        os.unlink(name, dir_fd=dir_fd)
+                    except OSError:
+                        pass
+                    raise
+                finally:
+                    if target is not None:
+                        os.close(target)
                 return folder / name
             finally:
                 os.close(source)
@@ -179,18 +255,12 @@ def save_note(picture: Path, note: str) -> Path | None:
     # As capture(): through a handle on the folder, which must be yours and
     # closed to others; the note is created exclusively, never via a link,
     # and removed again if it cannot be written in full.
-    dir_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    dir_fd = open_folder(path.parent)            # the same walk: no link on the way
     try:
-        info = os.fstat(dir_fd)
-        if info.st_uid != os.getuid() or info.st_mode & 0o022:
-            raise ValueError("the screenshot folder must be yours and not writable by others")
         fd = os.open(path.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
                      0o600, dir_fd=dir_fd)
         try:
-            data = (note + "\n").encode("utf-8")
-            written = 0
-            while written < len(data):
-                written += os.write(fd, data[written:])
+            _write_all(fd, (note + "\n").encode("utf-8"))
             os.fsync(fd)
         except BaseException:
             os.close(fd)

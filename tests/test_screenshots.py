@@ -4,12 +4,116 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 from unittest.mock import patch
+import os
 import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import screenshots  # noqa: E402
+
+
+def fake_grim(data=b"PNG-DATA-0123456789"):
+    def run(argv, **_kwargs):
+        Path(argv[-1]).write_bytes(data)
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
+    return run
+
+
+class HostileFolderTests(TestCase):
+    """Marketplace review 2.5.0: short writes, partial files, links on the way."""
+
+    def test_short_writes_are_continued(self):
+        real_write = os.write
+        with TemporaryDirectory() as tmp, \
+                patch.object(screenshots.subprocess, "run", side_effect=fake_grim(b"x" * 5000)), \
+                patch.object(screenshots.os, "write", side_effect=lambda fd, data: real_write(fd, bytes(data[:7]))):
+            path = screenshots.capture((0, 0, 10, 10), Path(tmp))
+            self.assertEqual(path.read_bytes(), b"x" * 5000)
+
+    def test_failed_copy_leaves_no_partial_picture(self):
+        for failing in ("fsync", "write"):
+            with TemporaryDirectory() as tmp, \
+                    patch.object(screenshots.subprocess, "run", side_effect=fake_grim()), \
+                    patch.object(screenshots.os, failing, side_effect=OSError("disk full")):
+                with self.assertRaises(OSError):
+                    screenshots.capture((0, 0, 10, 10), Path(tmp))
+                self.assertEqual(list(Path(tmp).iterdir()), [], failing)
+
+    def test_early_end_of_the_picture_is_a_failure(self):
+        real_read = os.read
+        calls = []
+
+        def short_read(fd, n):
+            calls.append(n)
+            return real_read(fd, n) if len(calls) == 1 else b""
+        with TemporaryDirectory() as tmp, \
+                patch.object(screenshots.subprocess, "run", side_effect=fake_grim(b"y" * 3 * 1024 * 1024)), \
+                patch.object(screenshots.os, "read", side_effect=short_read):
+            with self.assertRaises(OSError):
+                screenshots.capture((0, 0, 10, 10), Path(tmp))
+            self.assertEqual(list(Path(tmp).iterdir()), [])
+
+    def test_custom_folder_failure_leaves_nothing_there_and_saves_to_default(self):
+        with TemporaryDirectory() as tmp:
+            custom, default = Path(tmp) / "custom", Path(tmp) / "default"
+            custom.mkdir(mode=0o700)
+            default.mkdir(mode=0o700)
+            real_fsync, seen = os.fsync, []
+
+            def fsync_once(fd):
+                seen.append(fd)
+                if len(seen) == 1:
+                    raise OSError("disk full")
+                return real_fsync(fd)
+            with patch.object(screenshots, "default_folder", return_value=default), \
+                    patch.object(screenshots.subprocess, "run", side_effect=fake_grim()), \
+                    patch.object(screenshots.os, "fsync", side_effect=fsync_once):
+                path = screenshots.capture_to_settings((0, 0, 10, 10), {"screenshot_folder": str(custom)})
+            self.assertEqual(list(custom.iterdir()), [])
+            self.assertEqual(path.parent, Path(os.path.realpath(default)))
+            self.assertEqual(path.read_bytes(), b"PNG-DATA-0123456789")
+
+    def test_a_link_swapped_into_the_path_is_never_followed(self):
+        # The setting was checked while "a" was a folder; it is a link now.
+        with TemporaryDirectory() as tmp:
+            outside = Path(tmp) / "outside"
+            (outside / "b").mkdir(parents=True, mode=0o700)
+            (Path(tmp) / "a").symlink_to(outside)
+            folder = Path(tmp) / "a" / "b"
+            with patch.object(screenshots.subprocess, "run", side_effect=fake_grim()) as grim:
+                with self.assertRaises(OSError):
+                    screenshots.capture((0, 0, 10, 10), folder)
+            grim.assert_not_called()
+            with self.assertRaises(OSError):
+                screenshots.save_note(folder / "shot.png", "note")
+            self.assertEqual(list((outside / "b").iterdir()), [])
+
+    def test_missing_folders_are_made_only_inside_home(self):
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            home.mkdir(mode=0o700)
+            with patch.object(screenshots.Path, "home", return_value=home), \
+                    patch.object(screenshots.subprocess, "run", side_effect=fake_grim()):
+                path = screenshots.capture((0, 0, 10, 10), home / "Pictures" / "Shots")
+                self.assertEqual(path.parent, home / "Pictures" / "Shots")
+                self.assertEqual((home / "Pictures").stat().st_mode & 0o777, 0o700)
+                with self.assertRaises(FileNotFoundError):
+                    screenshots.capture((0, 0, 10, 10), Path(tmp) / "elsewhere" / "Shots")
+            self.assertFalse((Path(tmp) / "elsewhere").exists())
+
+    def test_default_folder_behind_your_own_link_still_works(self):
+        with TemporaryDirectory() as tmp:
+            home, disk = Path(tmp) / "home", Path(tmp) / "disk"
+            home.mkdir(mode=0o700)
+            (disk / "Pictures").mkdir(parents=True, mode=0o700)
+            (home / "Pictures").symlink_to(disk / "Pictures")
+            with patch.object(screenshots.Path, "home", return_value=home), \
+                    patch.object(screenshots.subprocess, "run", side_effect=fake_grim()):
+                path = screenshots.capture((0, 0, 10, 10))
+            # Resolved once (the link is yours); below it nothing is followed.
+            self.assertEqual(path.parent, Path(os.path.realpath(disk / "Pictures" / "AppManager")))
+            self.assertEqual((disk / "Pictures" / "AppManager").stat().st_mode & 0o777, 0o700)
 
 
 class ScreenshotTests(TestCase):

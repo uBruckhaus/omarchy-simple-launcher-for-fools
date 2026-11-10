@@ -65,7 +65,7 @@ from launcher_core import (
     saved_size, set_saved_size, saved_position, set_saved_position,
     plugin_manifests, set_admin_action, forget_saved_admin_action, clipboard_text, launch_action, launch_app, launch_as_admin, launch_floating, launch_on_workspace, floating_argv, load_hidden_apps, open_plugin, parse_desktop_files, parse_plugins,
     plugin_removal_note, save_hidden_apps, set_in_bar, BAR_SECTIONS, USER_PLUGINS_DIR,
-    icon_bytes, icon_file_for, screenshot_settings, set_screenshot_setting,
+    icon_bytes, icon_file_for, screenshot_settings, set_screenshot_setting, MAX_PASTE_TEXT_BYTES,
 )
 from palette import ThemePalette
 from key_colors import key_owner_colors
@@ -5588,11 +5588,20 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
             if isinstance(controller, (Gtk.DropTarget, Gtk.DropTargetAsync)):
                 text.remove_controller(controller)
 
+    @staticmethod
+    def paste_limit(entry):
+        """The field's own length limit (the screenshot note: 1000), else a
+        group name's, as before."""
+        field = entry if hasattr(entry, "get_max_length") else entry.get_delegate()
+        limit = field.get_max_length() if field is not None else 0
+        return limit if isinstance(limit, int) and limit > 0 else groups.MAX_NAME
+
     def on_field_paste(self, text, entry):
         text.stop_emission_by_name("paste-clipboard")
+        limit = self.paste_limit(entry)
 
         def worker():
-            pasted = clipboard_text(groups.MAX_NAME)
+            pasted = clipboard_text(limit, max_bytes=max(MAX_PASTE_TEXT_BYTES, 4 * limit))
             GLib.idle_add(self.insert_pasted, entry, pasted)
         threading.Thread(target=worker, daemon=True).start()
 
