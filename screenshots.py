@@ -10,6 +10,7 @@ import os
 import secrets
 import stat
 import subprocess
+import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -101,22 +102,36 @@ def _closed_chain(target: Path) -> bool:
 
 def _pictures() -> Path:
     """~/Pictures as a path without links. Only your own ~/Pictures link is
-    followed (Pictures on another disk), and only when its target and every
-    folder down to it are closed to other accounts; AppManager below it is
-    then reached without following any link."""
+    followed (Pictures on another disk), and only when the home folder is
+    closed to other accounts (so nobody else can swap the link), the link
+    text has no `..` and its target, and every folder down to it, is a plain
+    folder closed to other accounts (_closed_chain refuses any link on the
+    way). The link is read through a handle on the home folder, so it is the
+    very link that was checked; AppManager below it is then reached with the
+    no-follow walk."""
     home = Path(os.path.realpath(Path.home()))
     pictures = home / "Pictures"
+    home_fd = os.open(home, _DIR_FLAGS)
     try:
-        info = pictures.lstat()
-    except FileNotFoundError:
-        return pictures                       # made (0700) by the walk
-    if not stat.S_ISLNK(info.st_mode):
-        return pictures
-    if info.st_uid != os.getuid():
-        raise ValueError("~/Pictures is a link that is not yours")
-    target = Path(os.path.realpath(pictures))
+        try:
+            info = os.stat("Pictures", dir_fd=home_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return pictures                   # made (0700) by the walk
+        if not stat.S_ISLNK(info.st_mode):
+            return pictures                   # a folder: walked without following links
+        home_info = os.fstat(home_fd)
+        if home_info.st_uid != os.getuid() or home_info.st_mode & 0o022 or not _closed_chain(home):
+            raise ValueError("your home folder can be changed by other accounts: the ~/Pictures link is not followed")
+        if info.st_uid != os.getuid():
+            raise ValueError("~/Pictures is a link that is not yours")
+        link = os.readlink("Pictures", dir_fd=home_fd)
+    finally:
+        os.close(home_fd)
+    if ".." in Path(link).parts:
+        raise ValueError("the ~/Pictures link must not contain ..")
+    target = Path(os.path.normpath(os.path.join(home, link)))
     if not _closed_chain(target):
-        raise ValueError("~/Pictures points to a folder other accounts can change")
+        raise ValueError("~/Pictures points to a folder other accounts can change, or through another link")
     return target
 
 
@@ -220,8 +235,12 @@ def _publish(dir_fd: int, fill, names) -> str:
     finally:
         try:
             os.unlink(temporary, dir_fd=dir_fd)
-        except OSError:
+        except FileNotFoundError:
             pass
+        except OSError as error:
+            # It never carries a picture's or note's name; say it is there.
+            print(f"App Manager: could not remove the temporary screenshot file {temporary}: {error}",
+                  file=sys.stderr)
 
 
 def _private_dir() -> str:

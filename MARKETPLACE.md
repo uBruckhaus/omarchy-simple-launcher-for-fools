@@ -8,7 +8,7 @@ This document contains the ready-to-use copy, metadata, and feature breakdown fo
 
 - **Plugin ID**: `ubruckhaus.simple-launcher-for-fools`
 - **Display Name**: `App Manager`
-- **Version**: `2.5.2`
+- **Version**: `2.5.3`
 - **Author**: `Uwe Bruckhaus`
 - **Category**: `Desktop`
 - **Tags**: `launcher`, `bar`, `quickshell`
@@ -30,7 +30,7 @@ This document contains the ready-to-use copy, metadata, and feature breakdown fo
 
 Whether summoned with a click on the status bar or via a global Hyprland keybinding, the launcher appears instantly above all tiled and floating windows. Start typing immediately to filter your tools, jump straight to running applications, or manage distracting helper utilities with built-in app concealment.
 
-**New in 2.5 — F12 saves a picture of the popup to `~/Pictures/AppManager` with an optional note beside it (nothing is sent anywhere), and one Corners setting now shapes every control in the popup, with a new Slightly rounded (6 px) choice; the dock keeps its own rounding. 2.5.1/2.5.2: sturdier screenshot saving (a file gets its name only when complete, no link followed).**
+**New in 2.5 — F12 saves a picture of the popup to `~/Pictures/AppManager` with an optional note beside it (nothing is sent anywhere), and one Corners setting now shapes every control in the popup, with a new Slightly rounded (6 px) choice; the dock keeps its own rounding. 2.5.1–2.5.3: sturdier screenshot saving (a file gets its name only when complete, no link followed).**
 
 **New in 2.4 — Switch to window: pick one of an app's open windows from its menu; no more duplicate AppImage entries; the Information page lists the author's plugins straight from the marketplace.**
 

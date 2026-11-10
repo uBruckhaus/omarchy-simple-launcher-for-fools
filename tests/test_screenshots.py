@@ -167,7 +167,8 @@ class HostileFolderTests(TestCase):
         with TemporaryDirectory() as tmp, \
                 patch.object(screenshots.subprocess, "run", side_effect=fake_grim()), \
                 patch.object(screenshots.os, "fsync", side_effect=OSError("disk full")), \
-                patch.object(screenshots.os, "unlink", side_effect=OSError("cannot remove")):
+                patch.object(screenshots.os, "unlink", side_effect=OSError("cannot remove")), \
+                patch.object(screenshots.sys, "stderr", new=__import__("io").StringIO()):
             with self.assertRaises(OSError):
                 screenshots.capture((0, 0, 10, 10), Path(tmp), datetime(2026, 11, 10, 9, 0, 0))
             left = [p.name for p in Path(tmp).iterdir()]
@@ -196,10 +197,81 @@ class HostileFolderTests(TestCase):
                 screenshots.save_note(folder / "a.png", "note")
             self.assertEqual(victim.read_text(), "keep")
             with patch.object(screenshots.os, "fsync", side_effect=OSError("disk full")), \
-                    patch.object(screenshots.os, "unlink", side_effect=OSError("cannot remove")):
+                    patch.object(screenshots.os, "unlink", side_effect=OSError("cannot remove")), \
+                    patch.object(screenshots.sys, "stderr", new=__import__("io").StringIO()):
                 with self.assertRaises(OSError):
                     screenshots.save_note(folder / "b.png", "note")
             self.assertFalse((folder / "b.txt").exists())
+
+    def make_home(self, tmp, mode=0o700):
+        home, disk = Path(tmp) / "home", Path(tmp) / "disk"
+        home.mkdir()
+        home.chmod(mode)
+        disk.mkdir(mode=0o700)
+        return home, disk
+
+    def test_pictures_link_not_followed_in_a_home_others_can_change(self):
+        for mode in (0o777, 0o770, 0o1777):
+            with TemporaryDirectory() as tmp:
+                home, disk = self.make_home(tmp, mode)
+                (home / "Pictures").symlink_to(disk)
+                with patch.object(screenshots.Path, "home", return_value=home), \
+                        patch.object(screenshots.subprocess, "run", side_effect=fake_grim()) as grim:
+                    with self.assertRaises(ValueError):
+                        screenshots.capture((0, 0, 10, 10))
+                grim.assert_not_called()
+                self.assertEqual(list(disk.iterdir()), [], oct(mode))
+
+    def test_plain_pictures_folder_needs_no_link_check(self):
+        with TemporaryDirectory() as tmp:
+            home, _disk = self.make_home(tmp)
+            with patch.object(screenshots.Path, "home", return_value=home), \
+                    patch.object(screenshots.subprocess, "run", side_effect=fake_grim()):
+                path = screenshots.capture((0, 0, 10, 10))
+            self.assertEqual(path.parent, Path(os.path.realpath(home)) / "Pictures" / "AppManager")
+
+    def test_pictures_link_through_another_link_or_dotdot_is_refused(self):
+        with TemporaryDirectory() as tmp:
+            home, disk = self.make_home(tmp)
+            (disk / "pics").mkdir(mode=0o700)
+            (Path(tmp) / "via").symlink_to(disk)
+            for text in (str(Path(tmp) / "via" / "pics"), "../disk/pics"):
+                (home / "Pictures").unlink(missing_ok=True)
+                (home / "Pictures").symlink_to(text)
+                with patch.object(screenshots.Path, "home", return_value=home), \
+                        patch.object(screenshots.subprocess, "run", side_effect=fake_grim()) as grim:
+                    with self.assertRaises(ValueError):
+                        screenshots.capture((0, 0, 10, 10))
+                grim.assert_not_called()
+            self.assertEqual(list((disk / "pics").iterdir()), [])
+
+    def test_the_link_read_is_the_one_in_the_checked_home(self):
+        with TemporaryDirectory() as tmp:
+            home, disk = self.make_home(tmp)
+            (home / "Pictures").symlink_to(disk)
+            calls, real_readlink = [], os.readlink
+
+            def spy(path, *, dir_fd=None):
+                calls.append((path, dir_fd))
+                return real_readlink(path, dir_fd=dir_fd)
+            with patch.object(screenshots.Path, "home", return_value=home), \
+                    patch.object(screenshots.os, "readlink", side_effect=spy):
+                self.assertEqual(screenshots._pictures(), Path(os.path.realpath(disk)))
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0][0], "Pictures")         # relative to the opened home
+            self.assertIsInstance(calls[0][1], int)
+
+    def test_a_temporary_file_that_cannot_be_removed_is_reported(self):
+        import io
+        err = io.StringIO()
+        with TemporaryDirectory() as tmp, \
+                patch.object(screenshots.subprocess, "run", side_effect=fake_grim()), \
+                patch.object(screenshots.os, "fsync", side_effect=OSError("disk full")), \
+                patch.object(screenshots.os, "unlink", side_effect=PermissionError("cannot remove")), \
+                patch.object(screenshots.sys, "stderr", err):
+            with self.assertRaises(OSError):
+                screenshots.capture((0, 0, 10, 10), Path(tmp))
+        self.assertIn("could not remove the temporary screenshot file .app-manager-", err.getvalue())
 
     def test_default_folder_behind_your_own_link_still_works(self):
         with TemporaryDirectory() as tmp:
