@@ -1,7 +1,8 @@
 """See-through popups for the ubruckhaus plugins (reader; shared kit file).
 
-Theme Manager → Settings → "Plugin popups follow window style" writes
-~/.config/hypr/theme-manager-glass.lua; without that file popups stay solid.
+Theme Manager → Settings → "Plugin popups follow window style" creates the
+empty marker file ~/.config/omarchy/theme-manager/popup-glass; without it
+popups stay solid. Only file names are checked here, no file is opened.
 With it a popup's card follows Omarchy's window style (opaque / transparent /
 glassy, the toggle files of omarchy-hyprland-window-transparency).
 """
@@ -12,11 +13,10 @@ from pathlib import Path
 
 GLASSY_ALPHA = 0.6
 TRANSPARENT_ALPHA = 0.9
-GATE_NAME = "theme-manager-glass.lua"
 
 
-def hypr_dir() -> Path:
-    return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "hypr"
+def marker_file() -> Path:
+    return Path.home() / ".config/omarchy/theme-manager/popup-glass"
 
 
 def toggles_dir() -> Path:
@@ -24,7 +24,7 @@ def toggles_dir() -> Path:
 
 
 def enabled() -> bool:
-    return (hypr_dir() / GATE_NAME).is_file()
+    return marker_file().is_file()
 
 
 def window_mode() -> str:
