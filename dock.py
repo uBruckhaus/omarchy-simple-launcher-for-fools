@@ -238,6 +238,8 @@ class Dock(Gtk.Application):
         if self.theme.reload():
             self.radius = dock_radius()  # A theme can bring its own window rounding.
             self.apply_theme()
+        elif glass_style.popup_alpha() != getattr(self, "glass_alpha", None):
+            self.apply_theme()           # Theme Manager's switch or Omarchy's window style changed
         self.refresh(force=True)
         return True
 
@@ -429,11 +431,13 @@ class Dock(Gtk.Application):
         mark = dock_core.indicator_color(self.settings, c)
         line_long = max(12, round(self.settings["dock_icon_size"] * 0.6))
         line_short = max(6, round(line_long / 2))
+        # Theme Manager → "Plugin popups follow window style": the band follows it (at most 0.92).
+        glass = self.glass_alpha = glass_style.popup_alpha()
         css = f"""
         window.dock-window {{ background: transparent; }}
         .dock-strip {{ background: transparent; }}
         .dock-band {{
-            background: alpha({c['background']}, {min(0.92, glass_style.popup_alpha())});
+            background: alpha({c['background']}, {min(0.92, glass)});
             border: 1px solid alpha({c['foreground']}, 0.15);
             border-radius: 0;
         }}

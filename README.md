@@ -30,6 +30,10 @@ Open an app's menu (`☰`, `→`) → **Shortcut…**, or press `Ctrl+K`.
 - **All shortcuts of an app in one place**: launcher-made ones, your own `bindings.lua` binds and Omarchy defaults (including your default terminal, browser and editor, e.g. `Super + Enter` → Foot). Change, remove or turn off any of them; a `+1` badge in the list shows apps with more than one.
 - **No duplicates, no edits to your files**: a key that already opens the same thing is never added twice. Everything lives in a generated `~/.config/hypr/simple-launcher-shortcuts.lua`, validated with `hyprctl configerrors` and rolled back if Hyprland rejects it.
 
+## Changes in 2.6
+
+- **See-through popup and dock (opt-in, in Theme Manager).** With Theme Manager's **Settings → Plugin popups follow window style** on, the launcher card and the dock band follow Omarchy's window style: Glassy 0.6 with Hyprland's blur behind (Theme Manager adds that rule), Transparent 0.9, Opaque solid. App Manager only checks whether `~/.config/omarchy/theme-manager/popup-glass` and Omarchy's `~/.local/state/omarchy/toggles/hypr/window-glassy.lua` / `window-opaque.lua` exist (`glass_style.py`, names only; nothing is read or written); the popup checks when it opens, the dock within a minute.
+
 ## Changes in 2.5.3
 
 **`~/Pictures` link, checked where it lives.** The `~/Pictures` link is followed only when your home folder is yours and no other account can change it (so nobody can swap the link), and it is read through a handle on that home folder, so the link checked is the link followed. Its target must be written without `..` and lead through plain folders only (no further link), each closed to other accounts. Otherwise the screenshot is not saved and a notification says why. A hidden temporary file that cannot be removed is now logged.
