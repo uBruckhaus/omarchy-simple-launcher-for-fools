@@ -39,6 +39,7 @@ import threading
 from pathlib import Path
 
 import dock_core
+import glass_style
 import icons
 from i18n import _
 import corners
@@ -432,7 +433,7 @@ class Dock(Gtk.Application):
         window.dock-window {{ background: transparent; }}
         .dock-strip {{ background: transparent; }}
         .dock-band {{
-            background: alpha({c['background']}, 0.92);
+            background: alpha({c['background']}, {min(0.92, glass_style.popup_alpha())});
             border: 1px solid alpha({c['foreground']}, 0.15);
             border-radius: 0;
         }}

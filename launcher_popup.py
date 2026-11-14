@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 import desktop
+import glass_style
 
 # The bar popup (Omarchy) or an app window (other desktops).
 POPUP = desktop.popup()
@@ -2235,9 +2236,13 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
             sel_fg = fg_hex
             sel_desc_fg = muted_hex
 
+        # Theme Manager → "Plugin popups follow window style": see-through card (blurred while glassy).
+        glass = glass_style.popup_alpha()
+        self.glass_alpha = glass
+        card_bg = colors['background'] if glass >= 1 else f"alpha({colors['background']}, {glass})"
         css = f"""
         window#launcher-window, .launcher-overlay {{ background: transparent; }}
-        .launcher-card {{ background: {colors['background']}; color: {colors['foreground']};
+        .launcher-card {{ background: {card_bg}; color: {colors['foreground']};
             border: 1px solid {colors['accent']}; border-radius: {radius}px; padding: 17px; }}
         .launcher-title {{ font-size: 15px; font-weight: 600; }}
         .launcher-list {{ background: transparent; }}
@@ -2677,6 +2682,8 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
 
     def open(self):
         # A drag that never reported its end must not hold refreshes back.
+        if glass_style.popup_alpha() != getattr(self, "glass_alpha", None):
+            self.apply_theme()          # the window style changed while the popup slept
         self.tile_dragging, self.dragged_app, self.dragged_group = False, None, None
         self.refresh_after_drag = None
         self.shortcut_state = shortcuts.load_state()
