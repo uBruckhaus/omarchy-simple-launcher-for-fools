@@ -117,6 +117,53 @@ class TrayBudgetTests(unittest.TestCase):
         self.assertGreaterEqual(len(items), 1)
 
 
+class TrayBoundsTests(unittest.TestCase):
+    """Marketplace review #14102 round 2: replies are walked with limits, never unpacked whole."""
+
+    @staticmethod
+    def node(i, label, children=()):
+        from gi.repository import GLib
+        return GLib.Variant("(ia{sv}av)", (i, {"label": GLib.Variant("s", label)}, list(children)))
+
+    def test_menu_is_cut_by_count_and_depth(self):
+        from gi.repository import GLib
+        wide = GLib.Variant("av", [self.node(i, f"Entry {i}") for i in range(5000)])
+        flat = tray._layout_children(wide, [tray.MAX_MENU_NODES], 0)
+        self.assertEqual(len(flat), tray.MAX_MENU_NODES)
+        deep = self.node(0, "leaf")
+        for i in range(1, 50):
+            deep = self.node(i, f"level {i}", [deep])
+        tree = tray._layout_children(GLib.Variant("av", [deep]), [tray.MAX_MENU_NODES], 0)
+        depth = 0
+        while tree:
+            depth += 1
+            tree = tree[0][2]
+        self.assertEqual(depth, tray.MAX_MENU_DEPTH)
+        odd = GLib.Variant("av", [GLib.Variant("s", "junk")])
+        self.assertEqual(tray._layout_children(odd, [10], 0), [])
+
+    def test_menu_walk_stops_at_the_list_deadline(self):
+        from gi.repository import GLib
+        import time
+        wide = GLib.Variant("av", [self.node(i, "x") for i in range(50)])
+        tray._local.deadline = time.monotonic() - 1
+        try:
+            with self.assertRaises(tray.BudgetUsedUp):
+                tray._layout_children(wide, [100], 0)
+        finally:
+            tray._local.deadline = None
+
+    def test_registration_is_capped(self):
+        from gi.repository import GLib
+        reply = GLib.Variant("(v)", (GLib.Variant("as", [f":1.{i}/item" for i in range(10000)]),))
+        with mock.patch.object(tray, "_call", return_value=reply):
+            entries = tray._registered(None)
+        self.assertEqual(len(entries), tray.MAX_REGISTERED)
+        bad = GLib.Variant("(v)", (GLib.Variant("s", "x"),))
+        with mock.patch.object(tray, "_call", return_value=bad):
+            self.assertEqual(tray._registered(None), [])
+
+
 class TrayKeyTests(unittest.TestCase):
     def test_electron_icons_go_by_title(self):
         taken = set()

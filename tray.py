@@ -30,6 +30,10 @@ ITEM_ID_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 # not hold the reader longer (marketplace review #14102).
 LIST_BUDGET_SECONDS = 4.0
 MAX_ITEMS = 32
+MAX_REGISTERED = 64        # registration entries looked at (to notice icons come and go)
+MAX_MENU_NODES = 400       # menu entries read from one GetLayout reply
+MAX_MENU_DEPTH = 6
+MENU_PROPS = ("visible", "type", "label", "enabled", "toggle-type", "toggle-state")
 
 _local = threading.local()
 
@@ -115,7 +119,34 @@ def read_menu(bus, name, menu_path):
                       GLib.Variant("(iias)", (0, -1, [])), "(u(ia{sv}av))")
     except GLib.Error:
         return []
-    return _menu_nodes(reply.unpack()[1][2])
+    # Walked without unpacking the whole reply: a provider's huge or deep menu is cut, not read.
+    layout = reply.get_child_value(1)
+    return _menu_nodes(_layout_children(layout.get_child_value(2), [MAX_MENU_NODES], 0))
+
+
+def _layout_children(av, budget, depth):
+    """(id, props, children) tuples from a dbusmenu `av` of `(ia{sv}av)`, at most budget[0]
+    entries in all and MAX_MENU_DEPTH levels; also stops when the list budget runs out."""
+    out = []
+    if depth >= MAX_MENU_DEPTH:
+        return out
+    for i in range(av.n_children()):
+        if budget[0] <= 0:
+            break
+        _timeout_ms()                          # raises BudgetUsedUp once list_items' time is over
+        node = av.get_child_value(i).get_variant()
+        if node.get_type_string() != "(ia{sv}av)":
+            continue
+        budget[0] -= 1
+        props_variant = node.get_child_value(1)
+        props = {}
+        for key in MENU_PROPS:
+            value = props_variant.lookup_value(key, None)
+            if value is not None and value.get_type_string() in ("s", "b", "i"):
+                props[key] = value.unpack()[:200] if value.get_type_string() == "s" else value.unpack()
+        out.append((node.get_child_value(0).get_int32(), props,
+                    _layout_children(node.get_child_value(2), budget, depth + 1)))
+    return out
 
 
 def flat_actions(nodes, trail=()):
@@ -138,12 +169,17 @@ def _registered(bus):
                       GLib.Variant("(ss)", (WATCHER[2], "RegisteredStatusNotifierItems")), "(v)")
     except GLib.Error:
         return []
-    return list(reply.unpack()[0])
+    # Only the first MAX_REGISTERED entries are looked at (not the whole reply unpacked).
+    value = reply.get_child_value(0).get_variant()
+    if value.get_type_string() != "as":
+        return []
+    return [value.get_child_value(i).get_string()[:512] for i in range(min(value.n_children(), MAX_REGISTERED))]
 
 
 def registered():
-    """The registered tray entries right now, to notice icons come and go."""
-    return tuple(sorted(str(entry) for entry in _registered(_bus())))
+    """The registered tray entries right now, to notice icons come and go (bounded; call it off
+    the GTK thread)."""
+    return tuple(sorted(_registered(_bus())))
 
 
 def _split(entry):

@@ -3150,9 +3150,9 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
             # Rebuilding the cards mid-drag would drop the dragged card.
             menu_open = self.actions_menu_open() or getattr(self, "tile_dragging", False)
             # Tray icons come and go with their apps (Steam started, NordVPN quit).
-            if self.mode == "plugins" and not menu_open and self.shortcut_app is None and self.tray_changed():
-                self.reload_apps()
-            elif not menu_open:
+            if self.mode == "plugins" and not menu_open and self.shortcut_app is None:
+                self.watch_tray()
+            if not menu_open:
                 self.refresh_running_async()
             if self.theme.reload():
                 self.apply_theme()
@@ -6853,14 +6853,31 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         self.update_hidden_button_state()
         self.refresh_list()
 
-    def tray_changed(self):
-        try:
-            current = tray.registered()
-        except Exception:
-            return False
-        changed = current != getattr(self, "tray_seen", current)
-        self.tray_seen = current
-        return changed
+    def watch_tray(self):
+        """Notice tray icons coming and going without D-Bus on the GTK thread: one
+        background look at a time; a change reloads the plugin page."""
+        if getattr(self, "tray_looking", False):
+            return
+        self.tray_looking = True
+
+        def work():
+            try:
+                current = tray.registered()
+            except Exception:
+                current = None
+            GLib.idle_add(apply, current)
+
+        def apply(current):
+            self.tray_looking = False
+            if current is None:
+                return GLib.SOURCE_REMOVE
+            changed = current != getattr(self, "tray_seen", current)
+            self.tray_seen = current
+            if changed and self.mode == "plugins" and self.window and self.window.is_visible() \
+                    and not self.actions_menu_open() and self.shortcut_app is None:
+                self.reload_apps()
+            return GLib.SOURCE_REMOVE
+        threading.Thread(target=work, daemon=True).start()
 
     def tray_app(self, item):
         """The installed app a tray icon belongs to, or None."""
@@ -6894,7 +6911,14 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
 
     def prefetch_plugins(self):
         """Read the plugin page in the background (about 0.1 s of D-Bus and
-        omarchy-shell), so Tab shows it at once. A newer read wins."""
+        omarchy-shell), so Tab shows it at once. One read at a time: a request
+        while one runs makes exactly one more read after it (no pile-up of
+        workers when tray icons keep changing)."""
+        if getattr(self, "plugins_reading", False):
+            self.plugins_again = True
+            return
+        self.plugins_reading = True
+        self.plugins_again = False
         self.plugins_generation = getattr(self, "plugins_generation", 0) + 1
         generation = self.plugins_generation
 
@@ -6903,11 +6927,15 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
                 result = self.collect_plugins()
             except Exception as error:
                 print("Error reading plugins:", error, file=sys.stderr)
-                return
+                result = None
             GLib.idle_add(apply, result)
 
         def apply(result):
-            if generation != self.plugins_generation:
+            self.plugins_reading = False
+            if getattr(self, "plugins_again", False):
+                self.plugins_again = False
+                self.prefetch_plugins()
+            if result is None or generation != self.plugins_generation:
                 return GLib.SOURCE_REMOVE
             self.tray_seen, self.plugins = result
             self.prepare_entries(self.plugins, "plugins")

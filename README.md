@@ -32,6 +32,7 @@ Open an app's menu (`☰`, `→`) → **Shortcut…**, or press `Ctrl+K`.
 
 ## Changes in 2.6
 
+- **Tray replies are bounded (2.6.4).** A tray menu is walked entry by entry (at most 400 entries, 6 levels, within the read's deadline) instead of unpacking the whole reply; only the first 64 registrations are looked at; noticing icons come and go runs in the background, one look at a time; and only one background read of the plugin page runs at a time.
 - **Tray icons are read with one deadline (2.6.3).** Any program can register tray icons, so reading them (`tray.py` → `list_items()`) now has one total budget of 4 seconds for all D-Bus calls together and asks at most 32 icons; icons not read by then are left out until the next read. The popup no longer reads tray icons on its window thread: the plugin page and the **Quit** entry use the list the background reader keeps, and the page is read again behind it.
 - **See-through popup and dock (opt-in, in Theme Manager).** With Theme Manager's **Settings → Plugin popups follow window style** on, the launcher card and the dock band follow Omarchy's window style: Glassy 0.6 with Hyprland's blur behind (Theme Manager adds that rule), Transparent 0.9, Opaque solid. App Manager only checks whether `~/.config/omarchy/theme-manager/popup-glass` and Omarchy's `~/.local/state/omarchy/toggles/hypr/window-glassy.lua` / `window-opaque.lua` exist (`glass_style.py`, names only; nothing is read or written); the popup checks when it opens, the dock within a minute.
 
