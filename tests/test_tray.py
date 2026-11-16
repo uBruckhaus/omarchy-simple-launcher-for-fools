@@ -54,6 +54,69 @@ class TrayMenuTests(unittest.TestCase):
         self.assertEqual(tray.main(["tray.py"]), 2)
 
 
+class TrayBudgetTests(unittest.TestCase):
+    """Review #14102: many slow tray providers must not hold the reader."""
+
+    def slow_calls(self, delay):
+        import time
+
+        def call(bus, name, path, interface, method, args=None, reply=None):
+            timeout = tray._timeout_ms() / 1000         # what the real call would be given
+            time.sleep(min(delay, timeout))
+            if delay > timeout:
+                raise tray.GLib.Error("timed out")
+            if method == "GetAll":
+                return tray.GLib.Variant("(a{sv})", ({"Id": tray.GLib.Variant("s", name.strip(":").replace(".", "-")),
+                                                       "Title": tray.GLib.Variant("s", name)},))
+            raise tray.GLib.Error("no menu")
+        return call
+
+    def test_many_slow_items_end_within_the_budget(self):
+        import time
+        entries = [f":1.{n}/StatusNotifierItem" for n in range(500)]
+        with mock.patch.object(tray, "_bus"), mock.patch.object(tray, "_registered", return_value=entries), \
+                mock.patch.object(tray, "_owner_programs", return_value=set()), \
+                mock.patch.object(tray, "_call", side_effect=self.slow_calls(1.4)) as call:
+            start = time.monotonic()
+            items = tray.list_items(budget=0.5)
+            self.assertLess(time.monotonic() - start, 1.0)
+        self.assertEqual(items, [])
+        self.assertLessEqual(call.call_count, 2)
+        self.assertIsNone(getattr(tray._local, "deadline", None))     # budget cleared afterwards
+        self.assertEqual(tray._timeout_ms(), tray.TIMEOUT_MS)
+
+    def test_at_most_max_items_are_asked(self):
+        entries = [f":1.{n}/StatusNotifierItem" for n in range(500)]
+        with mock.patch.object(tray, "_bus"), mock.patch.object(tray, "_registered", return_value=entries), \
+                mock.patch.object(tray, "_owner_programs", return_value=set()), \
+                mock.patch.object(tray, "_call", side_effect=self.slow_calls(0)):
+            items = tray.list_items()
+        self.assertEqual(len(items), tray.MAX_ITEMS)
+
+    def test_fast_items_read_before_the_budget_ends_are_kept(self):
+        import time
+        entries = [f":1.{n}/StatusNotifierItem" for n in range(10)]
+        delays = iter([0, 0, 0, 0] + [5] * 100)   # GetAll + menu calls of the first items are quick
+
+        def call(bus, name, path, interface, method, args=None, reply=None):
+            delay = next(delays)
+            timeout = tray._timeout_ms() / 1000
+            time.sleep(min(delay, timeout))
+            if delay > timeout:
+                raise tray.GLib.Error("timed out")
+            if method == "GetAll":
+                return tray.GLib.Variant("(a{sv})", ({"Id": tray.GLib.Variant("s", "app" + name[3:]),
+                                                       "Title": tray.GLib.Variant("s", name)},))
+            raise tray.GLib.Error("no menu")
+        with mock.patch.object(tray, "_bus"), mock.patch.object(tray, "_registered", return_value=entries), \
+                mock.patch.object(tray, "_owner_programs", return_value=set()), \
+                mock.patch.object(tray, "_call", side_effect=call):
+            start = time.monotonic()
+            items = tray.list_items(budget=0.4)
+            self.assertLess(time.monotonic() - start, 1.0)
+        self.assertGreaterEqual(len(items), 1)
+
+
 class TrayKeyTests(unittest.TestCase):
     def test_electron_icons_go_by_title(self):
         taken = set()

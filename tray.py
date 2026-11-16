@@ -13,6 +13,8 @@ shortcut names the item by its Id and the entry by its labels.
 
 import re
 import sys
+import threading
+import time
 
 from gi.repository import Gio, GLib
 
@@ -23,6 +25,28 @@ ITEM_INTERFACE = "org.kde.StatusNotifierItem"
 MENU_INTERFACE = "com.canonical.dbusmenu"
 TIMEOUT_MS = 1500
 ITEM_ID_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+# One reading of all tray icons gets one deadline in total, and at most MAX_ITEMS
+# entries are asked: any program can register tray icons, so many slow ones must
+# not hold the reader longer (marketplace review #14102).
+LIST_BUDGET_SECONDS = 4.0
+MAX_ITEMS = 32
+
+_local = threading.local()
+
+
+class BudgetUsedUp(Exception):
+    pass
+
+
+def _timeout_ms():
+    """The per-call timeout: TIMEOUT_MS, or what is left of the running list_items() budget."""
+    deadline = getattr(_local, "deadline", None)
+    if deadline is None:
+        return TIMEOUT_MS
+    left = int((deadline - time.monotonic()) * 1000)
+    if left <= 0:
+        raise BudgetUsedUp()
+    return min(TIMEOUT_MS, left)
 
 
 def _bus():
@@ -31,7 +55,7 @@ def _bus():
 
 def _call(bus, name, path, interface, method, args=None, reply=None):
     return bus.call_sync(name, path, interface, method, args, GLib.VariantType(reply) if reply else None,
-                         Gio.DBusCallFlags.NONE, TIMEOUT_MS, None)
+                         Gio.DBusCallFlags.NONE, _timeout_ms(), None)
 
 
 def _properties(bus, name, path):
@@ -152,7 +176,7 @@ def _owner_programs(bus, name):
     try:
         pid = bus.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
                             "GetConnectionUnixProcessID", GLib.Variant("(s)", (name,)),
-                            GLib.VariantType("(u)"), Gio.DBusCallFlags.NONE, TIMEOUT_MS, None).unpack()[0]
+                            GLib.VariantType("(u)"), Gio.DBusCallFlags.NONE, _timeout_ms(), None).unpack()[0]
     except GLib.Error:
         return set()
     names = set()
@@ -184,11 +208,26 @@ def _title(props):
         return ""
 
 
-def list_items(with_menus=True):
-    """Tray items registered right now, as launcher list entries."""
+def list_items(with_menus=True, budget=LIST_BUDGET_SECONDS):
+    """Tray items registered right now, as launcher list entries. All D-Bus calls
+    together end after `budget` seconds; icons not read by then are left out."""
+    outer = getattr(_local, "deadline", None)
+    deadline = time.monotonic() + budget
+    _local.deadline = deadline if outer is None else min(outer, deadline)
+    try:
+        return _list_items(with_menus)
+    except BudgetUsedUp:
+        return sorted(getattr(_local, "partial", []), key=lambda item: item["name"].lower())
+    finally:
+        _local.deadline = outer
+        _local.partial = []
+
+
+def _list_items(with_menus):
     bus = _bus()
     items, seen = [], set()
-    for entry in _registered(bus):
+    _local.partial = items
+    for entry in _registered(bus)[:MAX_ITEMS]:
         name, path = _split(str(entry))
         try:
             props = _properties(bus, name, path)

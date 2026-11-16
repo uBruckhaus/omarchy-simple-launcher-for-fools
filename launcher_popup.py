@@ -6877,19 +6877,20 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         """How to quit a running app, or None: only its own tray Quit entry (a
         clean exit). Processes are never ended by App Manager itself: nothing
         outside the app can tell reliably which processes are that app."""
-        try:
-            item = next((i for i in tray.list_items() if self.tray_app(i) is app), None)
-        except Exception:
-            item = None
+        # The tray list the background reader keeps: no tray D-Bus calls on the GTK thread.
+        item = next((i for i in getattr(self, "tray_items", []) if self.tray_app(i) is app), None)
         node = tray.find_quit(item["tray_menu"]) if item else None
         if node:
             return lambda: (tray.click(item, node["id"]), GLib.timeout_add(800, self.refresh_after_close))
         return None
 
     def load_plugins(self):
-        self.tray_seen, self.plugins = self.collect_plugins()
+        """Show the plugin page now from the shell plugins and the last tray
+        list (no tray D-Bus calls on the GTK thread), then read the tray
+        icons again in the background."""
+        self.tray_seen, self.plugins = self.collect_plugins(read_tray=False)
         self.prepare_entries(self.plugins, "plugins")
-        self.plugins_at = time.monotonic()
+        self.prefetch_plugins()
 
     def prefetch_plugins(self):
         """Read the plugin page in the background (about 0.1 s of D-Bus and
@@ -7158,22 +7159,28 @@ class Launcher(Adw.Application if ADWAITA else Gtk.Application):
         badge.set_tooltip_text(note)
         return badge
 
-    def collect_plugins(self):
+    def collect_plugins(self, read_tray=True):
         """(tray registration snapshot, plugin page entries). No GTK here:
-        it also runs on the prefetch thread."""
+        it runs on the prefetch thread. read_tray=False (GTK thread) uses
+        the tray list of the last background read instead of D-Bus."""
         plugins, items, seen = [], [], getattr(self, "tray_seen", None)
-        try:
-            seen = tray.registered()
-        except Exception:
-            pass
+        if read_tray:
+            try:
+                seen = tray.registered()
+            except Exception:
+                pass
         try:
             plugins = parse_plugins()
         except Exception as e:
             print("Error listing shell plugins:", e, file=sys.stderr)
-        try:
-            items = tray.list_items()
-        except Exception as e:
-            print("Error listing tray icons:", e, file=sys.stderr)
+        if read_tray:
+            try:
+                items = tray.list_items()   # bounded: tray.LIST_BUDGET_SECONDS in total
+            except Exception as e:
+                print("Error listing tray icons:", e, file=sys.stderr)
+            self.tray_items = [dict(item) for item in items]
+        else:
+            items = [dict(item) for item in getattr(self, "tray_items", [])]
         for item in items:
             # The app's own icon reads better than a monochrome tray glyph.
             app = self.tray_app(item)
