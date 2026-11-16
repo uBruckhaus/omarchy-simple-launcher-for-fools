@@ -34,6 +34,8 @@ MAX_REGISTERED = 64        # registration entries looked at (to notice icons com
 MAX_MENU_NODES = 400       # menu entries read from one GetLayout reply
 MAX_MENU_DEPTH = 6
 MENU_PROPS = ("visible", "type", "label", "enabled", "toggle-type", "toggle-state")
+MAX_TEXT_BYTES = 1024      # a property or menu text longer than this is ignored, never converted
+ITEM_PROPS = {"Id": "s", "Title": "s", "Menu": "o", "ItemIsMenu": "b", "IconName": "s", "IconThemePath": "s"}
 
 _local = threading.local()
 
@@ -62,10 +64,31 @@ def _call(bus, name, path, interface, method, args=None, reply=None):
                          Gio.DBusCallFlags.NONE, _timeout_ms(), None)
 
 
+def _small(value, types):
+    """A short scalar from a reply variant, or None: only the expected types, texts of at most
+    MAX_TEXT_BYTES; nothing larger is turned into a Python object."""
+    if value is None or value.get_type_string() not in types:
+        return None
+    if value.get_type_string() in ("s", "o") and value.get_size() > MAX_TEXT_BYTES:
+        return None
+    return value.unpack()
+
+
 def _properties(bus, name, path):
+    """The item properties App Manager uses, read one by one from the reply (bounded)."""
     reply = _call(bus, name, path, "org.freedesktop.DBus.Properties", "GetAll",
                   GLib.Variant("(s)", (ITEM_INTERFACE,)), "(a{sv})")
-    return reply.unpack()[0]
+    found = reply.get_child_value(0)
+    props = {}
+    for key, kind in ITEM_PROPS.items():
+        value = _small(found.lookup_value(key, None), (kind,))
+        if value is not None:
+            props[key] = value
+    tooltip = found.lookup_value("ToolTip", None)
+    # ToolTip is (sa(iiay)ss): only its title (index 2) is read, never the icon pixmaps.
+    if tooltip is not None and tooltip.get_type_string() == "(sa(iiay)ss)":
+        props["ToolTip"] = ("", [], _small(tooltip.get_child_value(2), ("s",)) or "", "")
+    return props
 
 
 def clean_label(label):
@@ -142,8 +165,9 @@ def _layout_children(av, budget, depth):
         props = {}
         for key in MENU_PROPS:
             value = props_variant.lookup_value(key, None)
-            if value is not None and value.get_type_string() in ("s", "b", "i"):
-                props[key] = value.unpack()[:200] if value.get_type_string() == "s" else value.unpack()
+            small = _small(value, ("s", "b", "i"))
+            if small is not None:
+                props[key] = small[:200] if isinstance(small, str) else small
         out.append((node.get_child_value(0).get_int32(), props,
                     _layout_children(node.get_child_value(2), budget, depth + 1)))
     return out

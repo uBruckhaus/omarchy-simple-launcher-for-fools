@@ -153,6 +153,21 @@ class TrayBoundsTests(unittest.TestCase):
         finally:
             tray._local.deadline = None
 
+    def test_huge_texts_are_never_converted(self):
+        from gi.repository import GLib
+        big = "x" * (tray.MAX_TEXT_BYTES * 100)
+        reply = GLib.Variant("(a{sv})", ({"Id": GLib.Variant("s", big), "Title": GLib.Variant("s", "Steam"),
+                                          "IconName": GLib.Variant("s", "steam"), "Menu": GLib.Variant("o", "/menu"),
+                                          "ItemIsMenu": GLib.Variant("b", False),
+                                          "ToolTip": GLib.Variant("(sa(iiay)ss)", ("", [(1, 1, b"\x00" * 4096)], big, "")),
+                                          "Other": GLib.Variant("s", big)},))
+        with mock.patch.object(tray, "_call", return_value=reply):
+            props = tray._properties(None, "n", "/p")
+        self.assertEqual(props, {"Title": "Steam", "IconName": "steam", "Menu": "/menu", "ItemIsMenu": False,
+                                 "ToolTip": ("", [], "", "")})
+        node = GLib.Variant("(ia{sv}av)", (1, {"label": GLib.Variant("s", big)}, []))
+        self.assertEqual(tray._layout_children(GLib.Variant("av", [node]), [10], 0), [(1, {}, [])])
+
     def test_registration_is_capped(self):
         from gi.repository import GLib
         reply = GLib.Variant("(v)", (GLib.Variant("as", [f":1.{i}/item" for i in range(10000)]),))
